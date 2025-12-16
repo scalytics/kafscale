@@ -427,14 +427,14 @@ flowchart LR
     RR --> WP[Write Path]
     RR --> RP[Read Path]
 
-    subgraph Write Path
-        WB[Per-partition Write Buffer] --> SB[Segment Builder]
-        SB --> S3Write[(S3 Bucket\nWrite)]
+    subgraph "Write Path"
+        WB["Per-partition Write Buffer"] --> SB["Segment Builder"]
+        SB --> S3Write[("S3 Bucket\nWrite")]
     end
 
-    subgraph Read Path
-        SC[Segment Cache] --> SR[S3 Reader]
-        SR --> S3Read[(S3 Bucket\nRead)]
+    subgraph "Read Path"
+        SC["Segment Cache"] --> SR["S3 Reader"]
+        SR --> S3Read[("S3 Bucket\nRead")]
     end
 ```
 
