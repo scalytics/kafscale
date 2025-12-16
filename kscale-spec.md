@@ -422,19 +422,19 @@ The operator periodically writes the full cluster metadata (JSON mirroring `Clus
 
 ```mermaid
 flowchart LR
-    C[Client (TCP)] --> NL[Network Layer\nKafka protocol handlers]
-    NL --> RR[Request Router\n(Metadata / Produce / Fetch)]
-    RR --> WP[Write Path]
-    RR --> RP[Read Path]
+    C("Client (TCP)") --> NL["Network Layer / Kafka protocol handlers"]
+    NL --> RR["Request Router (Metadata / Produce / Fetch)"]
+    RR --> WP["Write Path"]
+    RR --> RP["Read Path"]
 
-    subgraph "Write Path"
+    subgraph Write_Path["Write Path"]
         WB["Per-partition Write Buffer"] --> SB["Segment Builder"]
-        SB --> S3Write[("S3 Bucket\nWrite")]
+        SB --> S3Write[("S3 Bucket<br/>Write")]
     end
 
-    subgraph "Read Path"
+    subgraph Read_Path["Read Path"]
         SC["Segment Cache"] --> SR["S3 Reader"]
-        SR --> S3Read[("S3 Bucket\nRead")]
+        SR --> S3Read[("S3 Bucket<br/>Read")]
     end
 ```
 
