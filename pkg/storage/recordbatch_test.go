@@ -27,3 +27,31 @@ func TestNewRecordBatchFromBytes(t *testing.T) {
 		t.Fatalf("bytes not patched")
 	}
 }
+
+func TestCountRecordBatchMessages(t *testing.T) {
+	first := makeRecordBatch(5, 0)
+	second := makeRecordBatch(3, 1)
+	recordSet := append(first, second...)
+	if got := CountRecordBatchMessages(recordSet); got != 8 {
+		t.Fatalf("expected 8 messages, got %d", got)
+	}
+}
+
+func TestCountRecordBatchMessagesIgnoresPartialBatch(t *testing.T) {
+	full := makeRecordBatch(4, 2)
+	partial := makeRecordBatch(6, 3)
+	recordSet := append(full, partial[:40]...)
+	if got := CountRecordBatchMessages(recordSet); got != 4 {
+		t.Fatalf("expected 4 messages from full batch, got %d", got)
+	}
+}
+
+func makeRecordBatch(count int32, baseOffset int64) []byte {
+	const size = 90
+	data := make([]byte, size)
+	binary.BigEndian.PutUint64(data[0:8], uint64(baseOffset))
+	binary.BigEndian.PutUint32(data[8:12], uint32(size-12))
+	binary.BigEndian.PutUint32(data[23:27], uint32(count-1))
+	binary.BigEndian.PutUint32(data[57:61], uint32(count))
+	return data
+}

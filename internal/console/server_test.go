@@ -1,4 +1,4 @@
-package main
+package console
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 )
 
 func TestConsoleStatusEndpoint(t *testing.T) {
-	mux, err := newConsoleMux()
+	mux, err := NewMux(ServerOptions{})
 	if err != nil {
-		t.Fatalf("newConsoleMux: %v", err)
+		t.Fatalf("NewMux: %v", err)
 	}
 	srv := newIPv4Server(t, mux)
 	defer srv.Close()
@@ -34,9 +34,9 @@ func TestConsoleStatusEndpoint(t *testing.T) {
 }
 
 func TestMetricsStream(t *testing.T) {
-	mux, err := newConsoleMux()
+	mux, err := NewMux(ServerOptions{})
 	if err != nil {
-		t.Fatalf("newConsoleMux: %v", err)
+		t.Fatalf("NewMux: %v", err)
 	}
 	srv := newIPv4Server(t, mux)
 	defer srv.Close()

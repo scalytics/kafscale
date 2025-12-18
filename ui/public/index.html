@@ -23,26 +23,40 @@
     </section>
     <section>
       <h2>Topics</h2>
-      <div class="actions">
-        <input type="text" id="topic-name" placeholder="orders" />
-        <input type="number" id="topic-partitions" min="1" value="1" />
-        <button id="create-topic">Create Topic</button>
-      </div>
       <table id="topic-table">
         <thead>
           <tr>
             <th>Name</th>
             <th>Partitions</th>
             <th>State</th>
-            <th></th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </section>
     <section>
+      <h2>Topic Detail</h2>
+      <div id="topic-detail" class="detail-panel">
+        <p>Select a topic to inspect partition layout.</p>
+      </div>
+    </section>
+    <section>
       <h2>Live Metrics</h2>
-      <pre id="metric-stream">Connecting…</pre>
+      <div id="metric-cards" class="cards metrics">
+        <div class="card metric">
+          <h3>Produce (msg/s)</h3>
+          <strong id="produce-rps">0</strong>
+        </div>
+        <div class="card metric">
+          <h3>Fetch (msg/s)</h3>
+          <strong id="fetch-rps">0</strong>
+        </div>
+        <div class="card metric">
+          <h3>S3 Latency (ms)</h3>
+          <strong id="live-s3-latency">0</strong>
+        </div>
+      </div>
+      <p id="metrics-status" class="muted">Waiting for samples…</p>
     </section>
   </main>
   <footer>

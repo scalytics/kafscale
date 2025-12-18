@@ -54,6 +54,8 @@ type handler struct {
 	autoCreateTopics     bool
 	autoCreatePartitions int32
 	traceKafka           bool
+	produceRate          *throughputTracker
+	fetchRate            *throughputTracker
 }
 
 func (h *handler) Handle(ctx context.Context, header *protocol.RequestHeader, req protocol.Request) ([]byte, error) {
@@ -197,6 +199,12 @@ func (h *handler) metricsHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "# TYPE kafscale_s3_state_duration_seconds gauge")
 		fmt.Fprintf(w, "kafscale_s3_state_duration_seconds %f\n", time.Since(snap.Since).Seconds())
 	}
+	fmt.Fprintln(w, "# HELP kafscale_produce_rps Broker ingest throughput measured over the sliding window.")
+	fmt.Fprintln(w, "# TYPE kafscale_produce_rps gauge")
+	fmt.Fprintf(w, "kafscale_produce_rps %f\n", h.produceRate.rate())
+	fmt.Fprintln(w, "# HELP kafscale_fetch_rps Broker fetch throughput measured over the sliding window.")
+	fmt.Fprintln(w, "# TYPE kafscale_fetch_rps gauge")
+	fmt.Fprintf(w, "kafscale_fetch_rps %f\n", h.fetchRate.rate())
 }
 
 func (h *handler) recordS3Op(op string, latency time.Duration, err error) {
@@ -209,6 +217,7 @@ func (h *handler) recordS3Op(op string, latency time.Duration, err error) {
 func (h *handler) handleProduce(ctx context.Context, header *protocol.RequestHeader, req *protocol.ProduceRequest) ([]byte, error) {
 	topicResponses := make([]protocol.ProduceTopicResponse, 0, len(req.Topics))
 	now := time.Now().UnixMilli()
+	var producedMessages int64
 
 	for _, topic := range req.Topics {
 		if h.traceKafka {
@@ -274,6 +283,7 @@ func (h *handler) handleProduce(ctx context.Context, header *protocol.RequestHea
 				LogAppendTimeMs: now,
 				LogStartOffset:  0,
 			})
+			producedMessages += int64(batch.MessageCount)
 			if h.traceKafka {
 				h.logger.Debug("produce append success", "topic", topic.Name, "partition", part.Partition, "base_offset", result.BaseOffset, "last_offset", result.LastOffset)
 			}
@@ -282,6 +292,10 @@ func (h *handler) handleProduce(ctx context.Context, header *protocol.RequestHea
 			Name:       topic.Name,
 			Partitions: partitionResponses,
 		})
+	}
+
+	if producedMessages > 0 {
+		h.produceRate.add(producedMessages)
 	}
 
 	if req.Acks == 0 {
@@ -390,6 +404,7 @@ func (h *handler) handleFetch(ctx context.Context, header *protocol.RequestHeade
 	if maxWait < 0 {
 		maxWait = 0
 	}
+	var fetchedMessages int64
 
 	for _, topic := range req.Topics {
 		partitionResponses := make([]protocol.FetchPartitionResponse, 0, len(topic.Partitions))
@@ -451,6 +466,9 @@ func (h *handler) handleFetch(ctx context.Context, header *protocol.RequestHeade
 				if h.traceKafka {
 					h.logger.Debug("fetch partition response", "topic", topic.Name, "partition", part.Partition, "records_bytes", len(recordSet), "high_watermark", highWatermark)
 				}
+				if len(recordSet) > 0 {
+					fetchedMessages += int64(storage.CountRecordBatchMessages(recordSet))
+				}
 			} else if h.traceKafka {
 				h.logger.Debug("fetch partition error", "topic", topic.Name, "partition", part.Partition, "error_code", errorCode)
 			}
@@ -468,6 +486,10 @@ func (h *handler) handleFetch(ctx context.Context, header *protocol.RequestHeade
 			Name:       topic.Name,
 			Partitions: partitionResponses,
 		})
+	}
+
+	if fetchedMessages > 0 {
+		h.fetchRate.add(fetchedMessages)
 	}
 
 	return protocol.EncodeFetchResponse(&protocol.FetchResponse{
@@ -573,6 +595,7 @@ func newHandler(store metadata.Store, s3Client storage.S3Client, brokerInfo prot
 	autoCreate := parseEnvBool("KAFSCALE_AUTO_CREATE_TOPICS", true)
 	autoPartitions := int32(parseEnvInt("KAFSCALE_AUTO_CREATE_PARTITIONS", 1))
 	traceKafka := parseEnvBool("KAFSCALE_TRACE_KAFKA", false)
+	throughputWindow := time.Duration(parseEnvInt("KAFSCALE_THROUGHPUT_WINDOW_SEC", 60)) * time.Second
 	if autoPartitions < 1 {
 		autoPartitions = 1
 	}
@@ -607,6 +630,8 @@ func newHandler(store metadata.Store, s3Client storage.S3Client, brokerInfo prot
 		autoCreateTopics:     autoCreate,
 		autoCreatePartitions: autoPartitions,
 		traceKafka:           traceKafka,
+		produceRate:          newThroughputTracker(throughputWindow),
+		fetchRate:            newThroughputTracker(throughputWindow),
 	}
 }
 
