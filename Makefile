@@ -1,4 +1,4 @@
-.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-operator demo demo-platform help
+.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-operator demo demo-platform help
 
 REGISTRY ?= ghcr.io/novatechflow
 STAMP_DIR ?= .build
@@ -145,6 +145,10 @@ test-produce-consume-debug: release-broker-ports ensure-minio ## Run produce/con
 	KAFSCALE_TRACE_KAFKA=true \
 	KAFSCALE_LOG_LEVEL=debug \
 	$(MAKE) test-produce-consume
+
+test-consumer-group: release-broker-ports ## Run consumer group persistence e2e (embedded etcd + in-memory S3).
+	KAFSCALE_E2E=1 \
+	go test -tags=e2e ./test/e2e -run TestConsumerGroupMetadataPersistsInEtcd -v
 
 test-operator: docker-build ## Run operator kind+helm snapshot e2e (requires kind/kubectl/helm).
 	KAFSCALE_E2E=1 \

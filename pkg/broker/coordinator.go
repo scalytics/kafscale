@@ -519,9 +519,15 @@ func buildConsumerGroup(groupID string, state *groupState) *metadatapb.ConsumerG
 		GenerationId: state.generationID,
 		Members:      make(map[string]*metadatapb.GroupMember, len(state.members)),
 	}
+	if state.rebalanceTimeout > 0 {
+		group.RebalanceTimeoutMs = int32(state.rebalanceTimeout / time.Millisecond)
+	}
 	for memberID, member := range state.members {
 		pbMember := &metadatapb.GroupMember{
 			Subscriptions: append([]string(nil), member.topics...),
+		}
+		if member.sessionTimeout > 0 {
+			pbMember.SessionTimeoutMs = int32(member.sessionTimeout / time.Millisecond)
 		}
 		if !member.lastHeartbeat.IsZero() {
 			pbMember.HeartbeatAt = member.lastHeartbeat.UTC().Format(time.RFC3339Nano)
@@ -541,6 +547,10 @@ func buildConsumerGroup(groupID string, state *groupState) *metadatapb.ConsumerG
 }
 
 func restoreGroupState(group *metadatapb.ConsumerGroup) *groupState {
+	rebalanceTimeout := defaultRebalanceTimeout
+	if group.RebalanceTimeoutMs > 0 {
+		rebalanceTimeout = time.Duration(group.RebalanceTimeoutMs) * time.Millisecond
+	}
 	state := &groupState{
 		protocolName:     group.Protocol,
 		protocolType:     group.ProtocolType,
@@ -549,12 +559,16 @@ func restoreGroupState(group *metadatapb.ConsumerGroup) *groupState {
 		state:            parseGroupPhase(group.State),
 		members:          make(map[string]*memberState, len(group.Members)),
 		assignments:      make(map[string][]assignmentTopic),
-		rebalanceTimeout: defaultRebalanceTimeout,
+		rebalanceTimeout: rebalanceTimeout,
 	}
 	for memberID, member := range group.Members {
+		sessionTimeout := defaultSessionTimeout
+		if member.SessionTimeoutMs > 0 {
+			sessionTimeout = time.Duration(member.SessionTimeoutMs) * time.Millisecond
+		}
 		entry := &memberState{
 			topics:         append([]string(nil), member.Subscriptions...),
-			sessionTimeout: defaultSessionTimeout,
+			sessionTimeout: sessionTimeout,
 			joinGeneration: group.GenerationId,
 		}
 		if member.HeartbeatAt != "" {

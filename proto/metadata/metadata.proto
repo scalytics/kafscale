@@ -44,6 +44,7 @@ message GroupMember {
   string heartbeat_at = 3;
   repeated Assignment assignments = 4;
   repeated string subscriptions = 5;
+  int32 session_timeout_ms = 6;
 }
 
 message ConsumerGroup {
@@ -54,6 +55,7 @@ message ConsumerGroup {
   string leader = 5;
   int32 generation_id = 6;
   map<string, GroupMember> members = 7;
+  int32 rebalance_timeout_ms = 8;
 }
 
 message CommittedOffset {
