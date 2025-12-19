@@ -42,6 +42,7 @@ function renderHealth(data) {
     { title: 'S3 State', value: (data.s3.state || 'unknown').toUpperCase() },
     { title: 'S3 Pressure', value: (data.s3.backpressure || 'unknown').toUpperCase() },
     { title: 'etcd', value: (data.etcd.state || 'unknown').toUpperCase() },
+    { title: 'Alerts', value: `${(data.alerts || []).length} active` },
   ];
   cards.forEach(card => {
     const div = document.createElement('div');
