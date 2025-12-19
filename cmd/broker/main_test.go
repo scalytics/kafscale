@@ -253,26 +253,40 @@ func TestHandleListOffsets(t *testing.T) {
 	if err := store.UpdateOffsets(context.Background(), "orders", 0, 9); err != nil {
 		t.Fatalf("UpdateOffsets: %v", err)
 	}
-	req := &protocol.ListOffsetsRequest{
-		Topics: []protocol.ListOffsetsTopic{
-			{
-				Name:       "orders",
-				Partitions: []protocol.ListOffsetsPartition{{Partition: 0, Timestamp: -1}},
-			},
-		},
+	tests := []struct {
+		name      string
+		timestamp int64
+		expected  int64
+	}{
+		{name: "latest", timestamp: -1, expected: 10},
+		{name: "earliest", timestamp: -2, expected: 0},
 	}
-	header := &protocol.RequestHeader{CorrelationID: 55, APIVersion: 0}
-	respBytes, err := handler.handleListOffsets(context.Background(), header, req)
-	if err != nil {
-		t.Fatalf("handleListOffsets: %v", err)
-	}
-	resp := decodeListOffsetsResponse(t, 0, respBytes)
-	if len(resp.Topics) != 1 || len(resp.Topics[0].Partitions) != 1 {
-		t.Fatalf("unexpected list offsets response: %#v", resp)
-	}
-	part := resp.Topics[0].Partitions[0]
-	if len(part.OldStyleOffsets) != 1 || part.OldStyleOffsets[0] != 10 {
-		t.Fatalf("expected old style offset 10 got %#v", part.OldStyleOffsets)
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req := &protocol.ListOffsetsRequest{
+				Topics: []protocol.ListOffsetsTopic{
+					{
+						Name:       "orders",
+						Partitions: []protocol.ListOffsetsPartition{{Partition: 0, Timestamp: tc.timestamp}},
+					},
+				},
+			}
+			header := &protocol.RequestHeader{CorrelationID: 55, APIVersion: 0}
+			respBytes, err := handler.handleListOffsets(context.Background(), header, req)
+			if err != nil {
+				t.Fatalf("handleListOffsets: %v", err)
+			}
+			resp := decodeListOffsetsResponse(t, 0, respBytes)
+			if len(resp.Topics) != 1 || len(resp.Topics[0].Partitions) != 1 {
+				t.Fatalf("unexpected list offsets response: %#v", resp)
+			}
+			part := resp.Topics[0].Partitions[0]
+			if len(part.OldStyleOffsets) != 1 || part.OldStyleOffsets[0] != tc.expected {
+				t.Fatalf("expected old style offset %d got %#v", tc.expected, part.OldStyleOffsets)
+			}
+		})
 	}
 }
 
@@ -384,7 +398,7 @@ func TestProduceBackpressureDegraded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleProduce: %v", err)
 	}
-	produceResp := decodeProduceResponse(t, resp)
+	produceResp := decodeProduceResponse(t, resp, 0)
 	code := produceResp.Topics[0].Partitions[0].ErrorCode
 	if code != protocol.REQUEST_TIMED_OUT {
 		t.Fatalf("expected request timed out error, got %d", code)
@@ -413,7 +427,7 @@ func TestProduceBackpressureUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleProduce: %v", err)
 	}
-	produceResp := decodeProduceResponse(t, resp)
+	produceResp := decodeProduceResponse(t, resp, 0)
 	code := produceResp.Topics[0].Partitions[0].ErrorCode
 	if code != protocol.UNKNOWN_SERVER_ERROR {
 		t.Fatalf("expected unknown server error, got %d", code)
@@ -555,6 +569,10 @@ func (f *failingS3Client) DownloadSegment(ctx context.Context, key string, rng *
 	return nil, errors.New("unsupported")
 }
 
+func (f *failingS3Client) ListSegments(ctx context.Context, prefix string) ([]storage.S3Object, error) {
+	return nil, errors.New("unsupported")
+}
+
 func (f *failingS3Client) EnsureBucket(ctx context.Context) error {
 	return errors.New("s3 unavailable")
 }
@@ -654,7 +672,7 @@ func TestFranzGoProduceConsumeLocal(t *testing.T) {
 	}
 }
 
-func decodeProduceResponse(t *testing.T, payload []byte) *protocol.ProduceResponse {
+func decodeProduceResponse(t *testing.T, payload []byte, version int16) *protocol.ProduceResponse {
 	t.Helper()
 	reader := bytes.NewReader(payload)
 	resp := &protocol.ProduceResponse{}
@@ -687,22 +705,30 @@ func decodeProduceResponse(t *testing.T, payload []byte) *protocol.ProduceRespon
 			if err := binary.Read(reader, binary.BigEndian, &part.BaseOffset); err != nil {
 				t.Fatalf("read base offset: %v", err)
 			}
-			if err := binary.Read(reader, binary.BigEndian, &part.LogAppendTimeMs); err != nil {
-				t.Fatalf("read append time: %v", err)
+			if version >= 3 {
+				if err := binary.Read(reader, binary.BigEndian, &part.LogAppendTimeMs); err != nil {
+					t.Fatalf("read append time: %v", err)
+				}
 			}
-			if err := binary.Read(reader, binary.BigEndian, &part.LogStartOffset); err != nil {
-				t.Fatalf("read start offset: %v", err)
+			if version >= 5 {
+				if err := binary.Read(reader, binary.BigEndian, &part.LogStartOffset); err != nil {
+					t.Fatalf("read start offset: %v", err)
+				}
 			}
-			var skip int32
-			if err := binary.Read(reader, binary.BigEndian, &skip); err != nil {
-				t.Fatalf("read delta: %v", err)
+			if version >= 8 {
+				var skip int32
+				if err := binary.Read(reader, binary.BigEndian, &skip); err != nil {
+					t.Fatalf("read delta: %v", err)
+				}
 			}
 			topicResp.Partitions = append(topicResp.Partitions, part)
 		}
 		resp.Topics = append(resp.Topics, topicResp)
 	}
-	if err := binary.Read(reader, binary.BigEndian, &resp.ThrottleMs); err != nil {
-		t.Fatalf("read throttle: %v", err)
+	if version >= 1 {
+		if err := binary.Read(reader, binary.BigEndian, &resp.ThrottleMs); err != nil {
+			t.Fatalf("read throttle: %v", err)
+		}
 	}
 	return resp
 }

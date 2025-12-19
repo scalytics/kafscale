@@ -150,6 +150,90 @@ func TestEncodeProduceResponseFlexible(t *testing.T) {
 	}
 }
 
+func TestEncodeProduceResponseLegacyVersions(t *testing.T) {
+	resp := &ProduceResponse{
+		CorrelationID: 7,
+		Topics: []ProduceTopicResponse{
+			{
+				Name: "orders",
+				Partitions: []ProducePartitionResponse{
+					{Partition: 0, ErrorCode: 0, BaseOffset: 10, LogAppendTimeMs: 123, LogStartOffset: 5},
+				},
+			},
+		},
+		ThrottleMs: 0,
+	}
+
+	tests := []struct {
+		name    string
+		version int16
+	}{
+		{name: "v0", version: 0},
+		{name: "v7", version: 7},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := EncodeProduceResponse(resp, tc.version)
+			if err != nil {
+				t.Fatalf("EncodeProduceResponse v%d: %v", tc.version, err)
+			}
+			reader := newByteReader(payload)
+			if _, err := reader.Int32(); err != nil {
+				t.Fatalf("read correlation: %v", err)
+			}
+			topicCount, err := reader.Int32()
+			if err != nil {
+				t.Fatalf("read topic count: %v", err)
+			}
+			for i := int32(0); i < topicCount; i++ {
+				if _, err := reader.String(); err != nil {
+					t.Fatalf("read topic name: %v", err)
+				}
+				partCount, err := reader.Int32()
+				if err != nil {
+					t.Fatalf("read partition count: %v", err)
+				}
+				for j := int32(0); j < partCount; j++ {
+					if _, err := reader.Int32(); err != nil {
+						t.Fatalf("read partition id: %v", err)
+					}
+					if _, err := reader.Int16(); err != nil {
+						t.Fatalf("read error code: %v", err)
+					}
+					if _, err := reader.Int64(); err != nil {
+						t.Fatalf("read base offset: %v", err)
+					}
+					if tc.version >= 3 {
+						if _, err := reader.Int64(); err != nil {
+							t.Fatalf("read log append time: %v", err)
+						}
+					}
+					if tc.version >= 5 {
+						if _, err := reader.Int64(); err != nil {
+							t.Fatalf("read log start offset: %v", err)
+						}
+					}
+					if tc.version >= 8 {
+						if _, err := reader.Int32(); err != nil {
+							t.Fatalf("read log offset delta: %v", err)
+						}
+					}
+				}
+			}
+			if tc.version >= 1 {
+				if _, err := reader.Int32(); err != nil {
+					t.Fatalf("read throttle ms: %v", err)
+				}
+			}
+			if reader.remaining() != 0 {
+				t.Fatalf("unexpected trailing bytes: %d", reader.remaining())
+			}
+		})
+	}
+}
+
 func TestEncodeListOffsetsResponseV0(t *testing.T) {
 	payload, err := EncodeListOffsetsResponse(0, &ListOffsetsResponse{
 		CorrelationID: 15,

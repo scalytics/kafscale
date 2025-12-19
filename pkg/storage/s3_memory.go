@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -47,7 +48,37 @@ func (m *MemoryS3Client) DownloadSegment(ctx context.Context, key string, rng *B
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if data, ok := m.data[key]; ok {
-		return append([]byte(nil), data...), nil
+		if rng == nil {
+			return append([]byte(nil), data...), nil
+		}
+		start := rng.Start
+		end := rng.End
+		if start < 0 {
+			start = 0
+		}
+		if end >= int64(len(data)) {
+			end = int64(len(data)) - 1
+		}
+		if start > end || start >= int64(len(data)) {
+			return nil, fmt.Errorf("segment %s range %d-%d invalid", key, rng.Start, rng.End)
+		}
+		return append([]byte(nil), data[start:end+1]...), nil
 	}
 	return nil, fmt.Errorf("segment %s not found", key)
+}
+
+func (m *MemoryS3Client) ListSegments(ctx context.Context, prefix string) ([]S3Object, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]S3Object, 0)
+	for key, data := range m.data {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		out = append(out, S3Object{
+			Key:  key,
+			Size: int64(len(data)),
+		})
+	}
+	return out, nil
 }

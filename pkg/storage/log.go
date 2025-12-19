@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +62,70 @@ func NewPartitionLog(topic string, partition int32, startOffset int64, s3Client 
 	}
 }
 
+// RestoreFromS3 rebuilds segment ranges from objects already stored in S3.
+func (l *PartitionLog) RestoreFromS3(ctx context.Context) (int64, error) {
+	prefix := path.Join(l.topic, fmt.Sprintf("%d", l.partition)) + "/"
+	objects, err := l.s3.ListSegments(ctx, prefix)
+	if err != nil {
+		return -1, err
+	}
+	type entry struct {
+		base int64
+		last int64
+	}
+	entries := make([]entry, 0, len(objects))
+	for _, obj := range objects {
+		if !strings.HasSuffix(obj.Key, ".kfs") {
+			continue
+		}
+		base, ok := parseSegmentBaseOffset(obj.Key)
+		if !ok {
+			continue
+		}
+		if obj.Size < segmentFooterLen {
+			continue
+		}
+		start := obj.Size - segmentFooterLen
+		rng := &ByteRange{Start: start, End: obj.Size - 1}
+		startTime := time.Now()
+		footerBytes, err := l.s3.DownloadSegment(ctx, obj.Key, rng)
+		if l.onS3Op != nil {
+			l.onS3Op("download_segment_footer", time.Since(startTime), err)
+		}
+		if err != nil {
+			return -1, err
+		}
+		lastOffset, err := parseSegmentFooter(footerBytes)
+		if err != nil {
+			return -1, err
+		}
+		entries = append(entries, entry{base: base, last: lastOffset})
+	}
+	if len(entries) == 0 {
+		return -1, nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].base < entries[j].base
+	})
+	segments := make([]segmentRange, 0, len(entries))
+	for _, entry := range entries {
+		segments = append(segments, segmentRange{
+			baseOffset: entry.base,
+			lastOffset: entry.last,
+		})
+	}
+	last := entries[len(entries)-1].last
+
+	l.mu.Lock()
+	l.segments = segments
+	if last >= l.nextOffset {
+		l.nextOffset = last + 1
+	}
+	l.mu.Unlock()
+
+	return last, nil
+}
+
 // AppendBatch writes a record batch to the log, updating offsets and flushing as needed.
 func (l *PartitionLog) AppendBatch(ctx context.Context, batch RecordBatch) (*AppendResult, error) {
 	var flushed *SegmentArtifact
@@ -87,6 +154,16 @@ func (l *PartitionLog) AppendBatch(ctx context.Context, batch RecordBatch) (*App
 		l.onFlush(ctx, flushed)
 	}
 	return result, nil
+}
+
+// EarliestOffset returns the lowest offset available in the log.
+func (l *PartitionLog) EarliestOffset() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.segments) == 0 {
+		return 0
+	}
+	return l.segments[0].baseOffset
 }
 
 // Flush forces buffered batches to be written to S3 immediately.
@@ -157,6 +234,22 @@ func (l *PartitionLog) segmentKey(baseOffset int64) string {
 
 func (l *PartitionLog) indexKey(baseOffset int64) string {
 	return path.Join(l.topic, fmt.Sprintf("%d", l.partition), fmt.Sprintf("segment-%020d.index", baseOffset))
+}
+
+func parseSegmentBaseOffset(key string) (int64, bool) {
+	name := path.Base(key)
+	if !strings.HasPrefix(name, "segment-") || !strings.HasSuffix(name, ".kfs") {
+		return 0, false
+	}
+	raw := strings.TrimSuffix(strings.TrimPrefix(name, "segment-"), ".kfs")
+	if raw == "" {
+		return 0, false
+	}
+	base, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return base, true
 }
 
 // AppendResult contains offsets for a flushed batch.

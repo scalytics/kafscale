@@ -20,6 +20,7 @@ type awsS3API interface {
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
 	CreateBucket(ctx context.Context, params *s3.CreateBucketInput, optFns ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 }
 
 type awsS3Client struct {
@@ -175,4 +176,32 @@ func (c *awsS3Client) DownloadSegment(ctx context.Context, key string, rng *Byte
 		return nil, fmt.Errorf("read body %s: %w", key, err)
 	}
 	return data, nil
+}
+
+func (c *awsS3Client) ListSegments(ctx context.Context, prefix string) ([]S3Object, error) {
+	paginator := s3.NewListObjectsV2Paginator(c.api, &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.bucket),
+		Prefix: aws.String(prefix),
+	})
+	out := make([]S3Object, 0)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list objects %s: %w", prefix, err)
+		}
+		for _, obj := range page.Contents {
+			if obj.Key == nil {
+				continue
+			}
+			size := int64(0)
+			if obj.Size != nil {
+				size = *obj.Size
+			}
+			out = append(out, S3Object{
+				Key:  *obj.Key,
+				Size: size,
+			})
+		}
+	}
+	return out, nil
 }

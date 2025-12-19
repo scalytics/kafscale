@@ -2315,6 +2315,12 @@ The operator resolves etcd endpoints in this order:
 
 Disaster recovery: configure an etcd snapshot schedule that uploads backups to a dedicated S3 bucket. The operator should surface the snapshot status and most recent backup timestamp in its status/metrics.
 
+### Etcd Schema Direction (Current)
+
+We currently use a **snapshot-only** schema: the operator publishes a single JSON metadata snapshot to etcd and brokers read from it. We intentionally avoid per-key writes for broker registrations, assignments, or topic metadata until the ops surface requires it. This keeps the control plane simple and avoids partial updates that could drift out of sync.
+
+Future release: consider moving to a per-key schema later (e.g., when we need richer ops APIs or finer-grained updates).
+
 ### Environment Variable Overrides
 
 ```bash
@@ -2723,35 +2729,35 @@ ENTRYPOINT ["./broker"]
 
 ### Milestone 1: Core Protocol
 
-- [ ] Kafka protocol frame parsing
-- [ ] ApiVersions request/response
-- [ ] Metadata request/response
-- [ ] Basic connection handling
-- [ ] Unit tests for protocol parsing
+- [x] Kafka protocol frame parsing
+- [x] ApiVersions request/response
+- [x] Metadata request/response
+- [x] Basic connection handling
+- [x] Unit tests for protocol parsing
 
 ### Milestone 2: Storage Layer
 
-- [ ] Segment file format implementation
-- [ ] Index file format implementation
-- [ ] S3 upload/download
-- [ ] Write buffer with flush logic
-- [ ] LRU segment cache
+- [x] Segment file format implementation
+- [x] Index file format implementation
+- [x] S3 upload/download
+- [x] Write buffer with flush logic
+- [x] LRU segment cache
 
 ### Milestone 3: Produce Path
 
-- [ ] ProduceRequest handling
-- [ ] Offset assignment
-- [ ] Batch buffering
-- [ ] S3 segment flush
-- [ ] etcd metadata updates
+- [x] ProduceRequest handling
+- [x] Offset assignment
+- [x] Batch buffering
+- [x] S3 segment flush
+- [x] etcd metadata updates
 
 ### Milestone 4: Fetch Path
 
-- [ ] FetchRequest handling
-- [ ] Segment location logic
-- [ ] S3 range reads
-- [ ] Cache integration
-- [ ] Read-ahead implementation
+- [x] FetchRequest handling
+- [x] Segment location logic
+- [x] S3 range reads
+- [x] Cache integration
+- [x] Read-ahead implementation
 
 ### Milestone 5: Consumer Groups
 
@@ -2779,17 +2785,17 @@ ENTRYPOINT ["./broker"]
 
 ### Milestone 7: Kubernetes Operator
 
-- [ ] CRD definitions
-- [ ] Cluster reconciler
-- [ ] Topic reconciler
-- [ ] Broker deployment management
-- [ ] HPA configuration
+- [x] CRD definitions
+- [x] Cluster reconciler
+- [x] Topic reconciler
+- [x] Broker deployment management
+- [x] HPA configuration
 
 ### Milestone 8: Observability
 
-- [ ] Prometheus metrics
+- [x] Prometheus metrics
 - [ ] Structured logging
-- [ ] Health endpoints
+- [x] Health endpoints
 - [ ] Grafana dashboard templates
 
 ### Milestone 8.5: Console UI Access
@@ -2798,20 +2804,21 @@ ENTRYPOINT ["./broker"]
 
 ### Milestone 9: Testing & Hardening
 
-- [ ] Integration test suite
-- [ ] Kafka client compatibility tests
-- [ ] Chaos testing (pod failures, S3 latency)
+- [x] Integration test suite
+- [x] Kafka client compatibility tests
+- [x] Chaos testing (pod failures, S3 latency)
 - [ ] Performance benchmarks
 
 ### Milestone 10: Production Readiness
 
-- [ ] Helm chart
-- [ ] Documentation
-- [ ] CI/CD pipeline
+- [x] Helm chart
+- [x] Documentation
+- [x] CI/CD pipeline
 - [ ] Security review (TLS, auth)
 
 ### Gap Backlog (Validated)
 
+- [x] Decide etcd schema direction (snapshot-only for now; defer per-key registry/assignment keys) **(start here; blocks the rest)**
 - [ ] Rebuild partition logs on broker restart by listing S3 segments + loading indexes
 - [ ] Align fetch request support with v13 (spec) or update spec to v11
 - [ ] Align S3 key layout with namespace support and use index-based range reads
@@ -2820,10 +2827,16 @@ ENTRYPOINT ["./broker"]
 - [x] Honor `KAFSCALE_OPERATOR_ETCD_ENDPOINTS` when cluster spec omits endpoints
 - [x] Auto-provision a 3-node etcd StatefulSet when no endpoints are configured
 - [x] Add etcd snapshot backups to S3 + surface snapshot status
-- [ ] Decide on etcd schema (snapshot vs per-key) and implement broker registrations/assignments if needed
 - [ ] Fix env var mismatches (`KAFSCALE_CACHE_SIZE` vs `KAFSCALE_CACHE_BYTES`, segment/flush vars)
 - [ ] Implement Milestone 6.5 Ops APIs (DescribeGroups/ListGroups/OffsetForLeaderEpoch/DescribeConfigs/AlterConfigs/CreatePartitions)
 - [ ] Expand Prometheus metrics to match observability spec
+- [x] E2E: broker port sanity (assert 9092/9093 reachability via Service/port-forward)
+- [x] E2E: S3 durability (produce, restart broker, consume from earliest to verify S3-backed recovery)
+- [x] E2E: S3 outage handling (stop MinIO, assert produces fail, recover on restart)
+- [x] E2E: operator leader election resilience (delete leader twice, ensure reconciliation continues)
+- [x] E2E: etcd member loss (delete one pod, snapshots still run)
+- [x] E2E: snapshot status metrics/conditions (force failure and confirm EtcdSnapshot/EtcdSnapshotAccess updates)
+- [ ] E2E: multi-segment restart durability (produce enough to create multiple segments, verify post-restart fetch)
 
 ## Appendix A: Kafka Protocol Wire Format Reference
 

@@ -109,3 +109,55 @@ func TestPartitionLogReportsS3Uploads(t *testing.T) {
 		t.Fatalf("expected upload callback for segment + index, got %d", uploads)
 	}
 }
+
+func TestPartitionLogRestoreFromS3(t *testing.T) {
+	s3 := NewMemoryS3Client()
+	c := cache.NewSegmentCache(1024)
+	log := NewPartitionLog("orders", 0, 0, s3, c, PartitionLogConfig{
+		Buffer: WriteBufferConfig{
+			MaxBytes:      1,
+			FlushInterval: time.Millisecond,
+		},
+		Segment: SegmentWriterConfig{
+			IndexIntervalMessages: 1,
+		},
+	}, nil, nil)
+
+	batchData := make([]byte, 70)
+	batch, _ := NewRecordBatchFromBytes(batchData)
+	if _, err := log.AppendBatch(context.Background(), batch); err != nil {
+		t.Fatalf("AppendBatch: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if err := log.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	recovered := NewPartitionLog("orders", 0, 0, s3, c, PartitionLogConfig{
+		Buffer: WriteBufferConfig{
+			MaxBytes:      1,
+			FlushInterval: time.Millisecond,
+		},
+		Segment: SegmentWriterConfig{
+			IndexIntervalMessages: 1,
+		},
+	}, nil, nil)
+	lastOffset, err := recovered.RestoreFromS3(context.Background())
+	if err != nil {
+		t.Fatalf("RestoreFromS3: %v", err)
+	}
+	if lastOffset != 0 {
+		t.Fatalf("expected last offset 0, got %d", lastOffset)
+	}
+	if earliest := recovered.EarliestOffset(); earliest != 0 {
+		t.Fatalf("expected earliest offset 0, got %d", earliest)
+	}
+
+	res, err := recovered.AppendBatch(context.Background(), batch)
+	if err != nil {
+		t.Fatalf("AppendBatch after restore: %v", err)
+	}
+	if res.BaseOffset != 1 {
+		t.Fatalf("expected base offset 1 after restore, got %d", res.BaseOffset)
+	}
+}

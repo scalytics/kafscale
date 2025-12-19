@@ -11,6 +11,7 @@ import (
 const (
 	segmentMagic = "KAFS"
 	footerMagic  = "END!"
+	segmentFooterLen = 16
 )
 
 var (
@@ -86,4 +87,28 @@ func buildFooter(crc uint32, lastOffset int64) []byte {
 	binary.Write(buf, binary.BigEndian, lastOffset)
 	buf.WriteString(footerMagic)
 	return buf.Bytes()
+}
+
+func parseSegmentFooter(data []byte) (int64, error) {
+	if len(data) < segmentFooterLen {
+		return 0, fmt.Errorf("footer too small")
+	}
+	reader := bytes.NewReader(data)
+	var crc uint32
+	if err := binary.Read(reader, binary.BigEndian, &crc); err != nil {
+		return 0, err
+	}
+	var lastOffset int64
+	if err := binary.Read(reader, binary.BigEndian, &lastOffset); err != nil {
+		return 0, err
+	}
+	footer := make([]byte, 4)
+	if _, err := reader.Read(footer); err != nil {
+		return 0, err
+	}
+	if string(footer) != footerMagic {
+		return 0, fmt.Errorf("invalid footer magic")
+	}
+	_ = crc
+	return lastOffset, nil
 }

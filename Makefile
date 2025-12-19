@@ -1,10 +1,11 @@
-.PHONY: proto build test tidy lint generate docker-build docker-clean ensure-minio start-minio stop-containers release-broker-ports test-e2e test-e2e-debug test-operator-kind demo demo-platform help
+.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-clean ensure-minio start-minio stop-containers release-broker-ports test-e2e test-e2e-debug test-operator demo demo-platform help
 
 REGISTRY ?= ghcr.io/novatechflow
 STAMP_DIR ?= .build
 BROKER_IMAGE ?= $(REGISTRY)/kafscale-broker:dev
 OPERATOR_IMAGE ?= $(REGISTRY)/kafscale-operator:dev
 CONSOLE_IMAGE ?= $(REGISTRY)/kafscale-console:dev
+E2E_CLIENT_IMAGE ?= $(REGISTRY)/kafscale-e2e-client:dev
 MINIO_CONTAINER ?= kafscale-minio
 MINIO_IMAGE ?= quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
 MINIO_PORT ?= 9000
@@ -29,7 +30,7 @@ build: ## Build all binaries
 test: ## Run unit tests
 	go test ./...
 
-docker-build: docker-build-broker docker-build-operator docker-build-console ## Build all container images
+docker-build: docker-build-broker docker-build-operator docker-build-console docker-build-e2e-client ## Build all container images
 	@mkdir -p $(STAMP_DIR)
 
 DOCKER_BUILD_CMD := $(shell \
@@ -63,10 +64,17 @@ $(STAMP_DIR)/console.image: $(CONSOLE_SRCS)
 	$(DOCKER_BUILD_CMD) -t $(CONSOLE_IMAGE) -f deploy/docker/console.Dockerfile .
 	@touch $(STAMP_DIR)/console.image
 
+E2E_CLIENT_SRCS := $(shell find cmd/e2e-client go.mod go.sum)
+docker-build-e2e-client: $(STAMP_DIR)/e2e-client.image ## Build e2e client container image
+$(STAMP_DIR)/e2e-client.image: $(E2E_CLIENT_SRCS)
+	@mkdir -p $(STAMP_DIR)
+	$(DOCKER_BUILD_CMD) -t $(E2E_CLIENT_IMAGE) -f deploy/docker/e2e-client.Dockerfile .
+	@touch $(STAMP_DIR)/e2e-client.image
+
 docker-clean: ## Remove local dev images and prune dangling Docker data
 	@echo "WARNING: this resets Docker build caches (buildx/builder) and removes local images."
 	@printf "Type YES to continue: "; read ans; [ "$$ans" = "YES" ] || { echo "aborted"; exit 1; }
-	-docker image rm -f $(BROKER_IMAGE) $(OPERATOR_IMAGE) $(CONSOLE_IMAGE)
+	-docker image rm -f $(BROKER_IMAGE) $(OPERATOR_IMAGE) $(CONSOLE_IMAGE) $(E2E_CLIENT_IMAGE)
 	-rm -rf $(STAMP_DIR)
 	docker system prune --force --volumes
 	docker buildx prune --force
@@ -123,6 +131,7 @@ release-broker-ports:
 
 test-e2e: release-broker-ports ensure-minio ## Run e2e tests against local Go binaries (only MinIO/kind helpers require Docker).
 	KAFSCALE_E2E=1 \
+	KAFSCALE_E2E_KIND=1 \
 	KAFSCALE_S3_BUCKET=$(MINIO_BUCKET) \
 	KAFSCALE_S3_REGION=$(MINIO_REGION) \
 	KAFSCALE_S3_ENDPOINT=http://127.0.0.1:$(MINIO_PORT) \
@@ -136,7 +145,7 @@ test-e2e-debug: release-broker-ports ensure-minio ## Run e2e tests with broker t
 	KAFSCALE_LOG_LEVEL=debug \
 	$(MAKE) test-e2e
 
-test-operator-kind: docker-build ## Run operator kind+helm snapshot e2e (requires kind/kubectl/helm).
+test-operator: docker-build ## Run operator kind+helm snapshot e2e (requires kind/kubectl/helm).
 	KAFSCALE_E2E=1 \
 	KAFSCALE_E2E_KIND=1 \
 	KAFSCALE_KIND_RECREATE=1 \

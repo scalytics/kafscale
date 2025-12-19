@@ -18,6 +18,7 @@ type fakeS3 struct {
 	getErr    error
 	headErr   error
 	createErr error
+	listErr   error
 }
 
 func (f *fakeS3) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
@@ -41,6 +42,10 @@ func (f *fakeS3) HeadBucket(ctx context.Context, params *s3.HeadBucketInput, opt
 
 func (f *fakeS3) CreateBucket(ctx context.Context, params *s3.CreateBucketInput, optFns ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {
 	return &s3.CreateBucketOutput{}, f.createErr
+}
+
+func (f *fakeS3) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	return &s3.ListObjectsV2Output{}, f.listErr
 }
 
 func TestAWSS3Client_Upload(t *testing.T) {

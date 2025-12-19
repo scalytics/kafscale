@@ -363,11 +363,22 @@ func (h *handler) handleListOffsets(ctx context.Context, header *protocol.Reques
 	for _, topic := range req.Topics {
 		partitions := make([]protocol.ListOffsetsPartitionResponse, 0, len(topic.Partitions))
 		for _, part := range topic.Partitions {
-			offset, err := h.store.NextOffset(ctx, topic.Name, part.Partition)
 			resp := protocol.ListOffsetsPartitionResponse{
 				Partition:   part.Partition,
 				LeaderEpoch: -1,
 			}
+			offset, err := func() (int64, error) {
+				switch part.Timestamp {
+				case -2:
+					plog, err := h.getPartitionLog(ctx, topic.Name, part.Partition)
+					if err != nil {
+						return 0, err
+					}
+					return plog.EarliestOffset(), nil
+				default:
+					return h.store.NextOffset(ctx, topic.Name, part.Partition)
+				}
+			}()
 			if err != nil {
 				resp.ErrorCode = protocol.UNKNOWN_SERVER_ERROR
 			} else {
@@ -583,6 +594,16 @@ func (h *handler) getPartitionLog(ctx context.Context, topic string, partition i
 				h.logger.Error("update offsets failed", "error", err, "topic", topic, "partition", partition)
 			}
 		}, h.recordS3Op)
+		lastOffset, err := plog.RestoreFromS3(ctx)
+		if err != nil {
+			h.logMu.Unlock()
+			return nil, err
+		}
+		if lastOffset >= nextOffset {
+			if err := h.store.UpdateOffsets(ctx, topic, partition, lastOffset); err != nil {
+				h.logger.Error("sync offsets from S3 failed", "error", err, "topic", topic, "partition", partition)
+			}
+		}
 		partitions[partition] = plog
 		h.logMu.Unlock()
 		return plog, nil
@@ -971,7 +992,7 @@ func generateApiVersions() []protocol.ApiVersion {
 	supported := []apiVersionSupport{
 		{key: protocol.APIKeyApiVersion, minVersion: 0, maxVersion: 0},
 		{key: protocol.APIKeyMetadata, minVersion: 0, maxVersion: 0},
-		{key: protocol.APIKeyProduce, minVersion: 9, maxVersion: 9},
+		{key: protocol.APIKeyProduce, minVersion: 0, maxVersion: 9},
 		{key: protocol.APIKeyFetch, minVersion: 11, maxVersion: 11},
 		{key: protocol.APIKeyFindCoordinator, minVersion: 3, maxVersion: 3},
 		{key: protocol.APIKeyListOffsets, minVersion: 0, maxVersion: 0},

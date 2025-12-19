@@ -4,7 +4,9 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +31,9 @@ import (
 func TestOperatorManagedEtcdResources(t *testing.T) {
 	if !parseBoolEnv("KAFSCALE_E2E") {
 		t.Skip("set KAFSCALE_E2E=1 to run operator envtest")
+	}
+	if !envtestAssetsAvailable() {
+		t.Skip("envtest assets missing; set KUBEBUILDER_ASSETS or install setup-envtest")
 	}
 
 	t.Setenv("KAFSCALE_OPERATOR_ETCD_ENDPOINTS", "")
@@ -121,6 +126,22 @@ func TestOperatorManagedEtcdResources(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("expected managed etcd resources: %v", err)
 	}
+}
+
+func envtestAssetsAvailable() bool {
+	assets := strings.TrimSpace(os.Getenv("KUBEBUILDER_ASSETS"))
+	if assets == "" {
+		assets = "/usr/local/kubebuilder/bin"
+	}
+	etcdPath := filepath.Join(assets, "etcd")
+	kubeAPIServerPath := filepath.Join(assets, "kube-apiserver")
+	if _, err := os.Stat(etcdPath); err != nil {
+		return false
+	}
+	if _, err := os.Stat(kubeAPIServerPath); err != nil {
+		return false
+	}
+	return true
 }
 
 func resourceExists(ctx context.Context, c client.Reader, obj client.Object, ns, name string) bool {

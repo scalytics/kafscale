@@ -305,9 +305,15 @@ func EncodeProduceResponse(resp *ProduceResponse, version int16) ([]byte, error)
 			w.Int32(p.Partition)
 			w.Int16(p.ErrorCode)
 			w.Int64(p.BaseOffset)
-			w.Int64(p.LogAppendTimeMs)
-			w.Int64(p.LogStartOffset)
-			w.Int32(0) // log_offset_delta (unused for v9)
+			if version >= 3 {
+				w.Int64(p.LogAppendTimeMs)
+			}
+			if version >= 5 {
+				w.Int64(p.LogStartOffset)
+			}
+			if version >= 8 {
+				w.Int32(0) // log_offset_delta (unused)
+			}
 			if flexible {
 				w.WriteTaggedFields(0)
 			}
@@ -316,7 +322,9 @@ func EncodeProduceResponse(resp *ProduceResponse, version int16) ([]byte, error)
 			w.WriteTaggedFields(0)
 		}
 	}
-	w.Int32(resp.ThrottleMs)
+	if version >= 1 {
+		w.Int32(resp.ThrottleMs)
+	}
 	if flexible {
 		w.WriteTaggedFields(0)
 	}

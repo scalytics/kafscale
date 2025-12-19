@@ -42,14 +42,14 @@ make test-e2e         # run the minio/franz + operator e2e suites (images from d
 make test-e2e-debug   # same as above but with broker trace logging enabled
 KAFSCALE_E2E=1 go test -tags=e2e ./test/e2e -run TestOperatorManagedEtcdResources -v # operator envtest (no kind)
 KAFSCALE_E2E=1 KAFSCALE_E2E_KIND=1 go test -tags=e2e ./test/e2e -run TestOperatorEtcdSnapshotKindE2E -v # kind + helm integration
-make test-operator-kind # same as above, wrapped in Makefile (set KAFSCALE_KIND_RECREATE=1 for clean clusters)
+make test-operator # same as above, wrapped in Makefile (set KAFSCALE_KIND_RECREATE=1 for clean clusters)
 make demo-platform # kind-based platform demo (operator HA + managed etcd + console)
 make docker-clean # delete dev images and prune Docker caches when you need a fresh slate
 make stop-containers # stop leftover kafscale-minio/kind containers from previous e2e runs
 make help         # list available Makefile targets
 ```
 
-The Makefile defines these as `.PHONY`: `proto`, `build`, `test`, `tidy`, `lint`, `generate`, `docker-build`, `docker-build-broker`, `docker-build-operator`, `docker-build-console`, `docker-clean`, `ensure-minio`, `start-minio`, `stop-containers`, `release-broker-ports`, `test-e2e`, `test-e2e-debug`, `test-operator-kind`, `demo`, `demo-platform`, `help`.
+The Makefile defines these as `.PHONY`: `proto`, `build`, `test`, `tidy`, `lint`, `generate`, `docker-build`, `docker-build-broker`, `docker-build-operator`, `docker-build-console`, `docker-build-e2e-client`, `docker-clean`, `ensure-minio`, `start-minio`, `stop-containers`, `release-broker-ports`, `test-e2e`, `test-e2e-debug`, `test-operator`, `demo`, `demo-platform`, `help`.
 
 ### Development/Test Environment Variables
 

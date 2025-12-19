@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,14 +54,17 @@ func TestOperatorEtcdSnapshotKindE2E(t *testing.T) {
 	brokerImage := envOrDefault("KAFSCALE_BROKER_IMAGE", "ghcr.io/novatechflow/kafscale-broker:dev")
 	operatorImage := envOrDefault("KAFSCALE_OPERATOR_IMAGE", "ghcr.io/novatechflow/kafscale-operator:dev")
 	consoleImage := envOrDefault("KAFSCALE_CONSOLE_IMAGE", "ghcr.io/novatechflow/kafscale-console:dev")
+	e2eClientImage := envOrDefault("KAFSCALE_E2E_CLIENT_IMAGE", "ghcr.io/novatechflow/kafscale-e2e-client:dev")
 
 	requireImage(t, ctx, brokerImage)
 	requireImage(t, ctx, operatorImage)
 	requireImage(t, ctx, consoleImage)
+	requireImage(t, ctx, e2eClientImage)
 
 	loadImage(t, ctx, clusterName, brokerImage)
 	loadImage(t, ctx, clusterName, operatorImage)
 	loadImage(t, ctx, clusterName, consoleImage)
+	loadImage(t, ctx, clusterName, e2eClientImage)
 
 	chartPath := filepath.Join(repoRoot(t), "deploy", "helm", "kafscale")
 	operatorRepo, operatorTag := splitImage(operatorImage)
@@ -96,18 +100,18 @@ func TestOperatorEtcdSnapshotKindE2E(t *testing.T) {
 	}
 	waitForCondition(t, ctx, kindNamespace, "kafscalecluster/kafscale", "EtcdSnapshotAccess", "True", 2*time.Minute)
 
+	waitForReadyPods(t, ctx, kindNamespace, "app=kafscale-broker", 2*time.Minute)
+	waitForServiceEndpoints(t, ctx, kindNamespace, "kafscale-broker", 2*time.Minute)
+	t.Log("testing broker port sanity (9092/9093 reachable via service DNS)")
+	if err := runPortCheckPod(t, ctx, kindNamespace, e2eClientImage, "kafscale-broker."+kindNamespace+".svc.cluster.local", []int{9092, 9093}); err != nil {
+		t.Fatalf("broker port sanity: %v", err)
+	}
+
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "job", "etcd-snapshot-manual", "--ignore-not-found=true")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "create", "job", "etcd-snapshot-manual", "--from=cronjob/kafscale-etcd-snapshot")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "wait", "--for=condition=complete", "job/etcd-snapshot-manual", "--timeout=180s")
 
-	listing := runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "run", "s3-list", "--rm", "-i", "--restart=Never",
-		"--image=amazon/aws-cli:2.15.0",
-		"--env", "AWS_ACCESS_KEY_ID=minioadmin",
-		"--env", "AWS_SECRET_ACCESS_KEY=minioadmin",
-		"--env", "AWS_DEFAULT_REGION=us-east-1",
-		"--env", "AWS_EC2_METADATA_DISABLED=true",
-		"--command", "--", "sh", "-c",
-		"aws --endpoint-url http://minio."+kindNamespace+".svc.cluster.local:9000 s3api list-objects-v2 --bucket kafscale-snapshots --prefix etcd-snapshots/ --query 'Contents[].Key' --output text")
+	listing := listSnapshotObjects(t, ctx, kindNamespace)
 	t.Logf("minio snapshot objects:\n%s", string(listing))
 	if !bytes.Contains(listing, []byte(".db")) {
 		t.Fatalf("expected snapshot .db object in minio, got:\n%s", string(listing))
@@ -116,28 +120,83 @@ func TestOperatorEtcdSnapshotKindE2E(t *testing.T) {
 		t.Fatalf("expected snapshot .db.sha256 object in minio, got:\n%s", string(listing))
 	}
 
+	t.Log("testing broker restart durability: produce before restart, consume after restart")
+	brokerAddr := fmt.Sprintf("kafscale-broker.%s.svc.cluster.local:9092", kindNamespace)
+	topic := fmt.Sprintf("restart-%08x", rand.Uint32())
+	messageCount := 5
+	if err := runE2EClient(t, ctx, kindNamespace, e2eClientImage, "produce", brokerAddr, topic, messageCount, 40); err != nil {
+		t.Fatalf("produce before restart: %v", err)
+	}
+	time.Sleep(600 * time.Millisecond)
+	if err := runE2EClient(t, ctx, kindNamespace, e2eClientImage, "produce", brokerAddr, topic, 1, 40); err != nil {
+		t.Fatalf("produce flush trigger: %v", err)
+	}
+	messageCount++
+	time.Sleep(300 * time.Millisecond)
+
+	brokerPod := getPodByLabel(t, ctx, kindNamespace, "app=kafscale-broker")
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "pod", brokerPod)
+	waitForRollout(t, ctx, kindNamespace, "deployment/kafscale-broker", 2*time.Minute)
+	waitForReadyPods(t, ctx, kindNamespace, "app=kafscale-etcd,job-name!=etcd-snapshot-manual", 2*time.Minute)
+
+	time.Sleep(1 * time.Second)
+	if err := runE2EClient(t, ctx, kindNamespace, e2eClientImage, "consume", brokerAddr, topic, messageCount, 60); err != nil {
+		t.Fatalf("consume after restart: %v", err)
+	}
+
+	t.Log("testing S3 outage handling: stop MinIO, assert produce fails, recover on restart")
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "scale", "deployment/minio", "--replicas=0")
+	waitForPodDeletion(t, ctx, kindNamespace, "app=minio", 90*time.Second)
+	outageTopic := fmt.Sprintf("s3-outage-%08x", rand.Uint32())
+	if err := runE2EClientExpectFailure(t, ctx, kindNamespace, e2eClientImage, "produce", brokerAddr, outageTopic, 1, 30); err != nil {
+		t.Fatalf("expected produce to fail during S3 outage: %v", err)
+	}
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "scale", "deployment/minio", "--replicas=1")
+	waitForRollout(t, ctx, kindNamespace, "deployment/minio", 2*time.Minute)
+	waitForReadyPods(t, ctx, kindNamespace, "app=minio", 2*time.Minute)
+	touchClusterAnnotation(t, ctx, kindNamespace, "kafscale")
+	waitForCondition(t, ctx, kindNamespace, "kafscalecluster/kafscale", "EtcdSnapshotAccess", "True", 2*time.Minute)
+	if err := runE2EClient(t, ctx, kindNamespace, e2eClientImage, "produce", brokerAddr, outageTopic, 1, 60); err != nil {
+		t.Fatalf("expected produce to recover after S3 outage: %v", err)
+	}
+
 	t.Log("testing operator HA: deleting leader pod and waiting for rollout")
 	operatorPod := getPodByLabel(t, ctx, kindNamespace, "app.kubernetes.io/component=operator")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "pod", operatorPod)
 	waitForRollout(t, ctx, kindNamespace, "deployment/"+operatorDeployment, 2*time.Minute)
+
+	operatorPod = getPodByLabel(t, ctx, kindNamespace, "app.kubernetes.io/component=operator")
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "pod", operatorPod)
+	waitForRollout(t, ctx, kindNamespace, "deployment/"+operatorDeployment, 2*time.Minute)
+	waitForCondition(t, ctx, kindNamespace, "kafscalecluster/kafscale", "EtcdSnapshotAccess", "True", 2*time.Minute)
 
 	t.Log("testing etcd HA: deleting one member and waiting for ready")
 	etcdPod := getPodByLabel(t, ctx, kindNamespace, "app=kafscale-etcd")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "pod", etcdPod)
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "wait", "--for=condition=ready", "pod", "-l", "app=kafscale-etcd", "--timeout=180s")
 
+	t.Log("testing etcd member loss: snapshots still run after member delete")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "job", "etcd-snapshot-manual", "--ignore-not-found=true")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "create", "job", "etcd-snapshot-manual", "--from=cronjob/kafscale-etcd-snapshot")
 	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "wait", "--for=condition=complete", "job/etcd-snapshot-manual", "--timeout=180s")
 
-	postFailoverListing := runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "run", "s3-list", "--rm", "-i", "--restart=Never",
-		"--image=amazon/aws-cli:2.15.0",
-		"--env", "AWS_ACCESS_KEY_ID=minioadmin",
-		"--env", "AWS_SECRET_ACCESS_KEY=minioadmin",
-		"--env", "AWS_DEFAULT_REGION=us-east-1",
-		"--env", "AWS_EC2_METADATA_DISABLED=true",
-		"--command", "--", "sh", "-c",
-		"aws --endpoint-url http://minio."+kindNamespace+".svc.cluster.local:9000 s3api list-objects-v2 --bucket kafscale-snapshots --prefix etcd-snapshots/ --query 'Contents[].Key' --output text")
+	t.Log("testing snapshot status conditions: force failure and confirm EtcdSnapshotAccess=False")
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "scale", "deployment/minio", "--replicas=0")
+	waitForPodDeletion(t, ctx, kindNamespace, "app=minio", 90*time.Second)
+	touchClusterAnnotation(t, ctx, kindNamespace, "kafscale")
+	waitForCondition(t, ctx, kindNamespace, "kafscalecluster/kafscale", "EtcdSnapshotAccess", "False", 2*time.Minute)
+
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "scale", "deployment/minio", "--replicas=1")
+	waitForRollout(t, ctx, kindNamespace, "deployment/minio", 2*time.Minute)
+	waitForReadyPods(t, ctx, kindNamespace, "app=minio", 2*time.Minute)
+	touchClusterAnnotation(t, ctx, kindNamespace, "kafscale")
+	waitForCondition(t, ctx, kindNamespace, "kafscalecluster/kafscale", "EtcdSnapshotAccess", "True", 2*time.Minute)
+
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "delete", "job", "etcd-snapshot-manual", "--ignore-not-found=true")
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "create", "job", "etcd-snapshot-manual", "--from=cronjob/kafscale-etcd-snapshot")
+	runCmdGetOutput(t, ctx, "kubectl", "-n", kindNamespace, "wait", "--for=condition=complete", "job/etcd-snapshot-manual", "--timeout=180s")
+
+	postFailoverListing := listSnapshotObjects(t, ctx, kindNamespace)
 	t.Logf("minio snapshot objects after failover:\n%s", string(postFailoverListing))
 	if !bytes.Contains(postFailoverListing, []byte(".db")) {
 		t.Fatalf("expected snapshot .db object in minio after failover, got:\n%s", string(postFailoverListing))
@@ -161,6 +220,150 @@ func execCommand(ctx context.Context, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func waitForReadyPods(t *testing.T, ctx context.Context, namespace, selector string, timeout time.Duration) {
+	t.Helper()
+	runCmdGetOutput(t, ctx, "kubectl", "-n", namespace, "wait", "--for=condition=ready", "pod", "-l", selector, "--timeout="+timeout.String())
+}
+
+func listSnapshotObjects(t *testing.T, ctx context.Context, namespace string) []byte {
+	t.Helper()
+	podName := fmt.Sprintf("s3-list-%d", time.Now().UnixNano())
+	if err := execCommand(ctx, "kubectl", "-n", namespace, "run", podName, "--restart=Never",
+		"--image=amazon/aws-cli:2.15.0",
+		"--env", "AWS_ACCESS_KEY_ID=minioadmin",
+		"--env", "AWS_SECRET_ACCESS_KEY=minioadmin",
+		"--env", "AWS_DEFAULT_REGION=us-east-1",
+		"--env", "AWS_EC2_METADATA_DISABLED=true",
+		"--command", "--", "sh", "-c",
+		"aws --endpoint-url http://minio."+namespace+".svc.cluster.local:9000 s3api list-objects-v2 --bucket kafscale-snapshots --prefix etcd-snapshots/ --query 'Contents[].Key' --output text"); err != nil {
+		t.Fatalf("start s3 list pod: %v", err)
+	}
+	runCmdGetOutput(t, ctx, "kubectl", "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/"+podName, "--timeout=60s")
+	listing := runCmdGetOutput(t, ctx, "kubectl", "-n", namespace, "logs", "pod/"+podName)
+	runCmdGetOutput(t, ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+	return listing
+}
+
+func runE2EClient(t *testing.T, ctx context.Context, namespace, image, mode, brokerAddr, topic string, count int, timeoutSec int) error {
+	t.Helper()
+	podName := fmt.Sprintf("kafscale-e2e-%s-%d", mode, time.Now().UnixNano())
+	args := []string{
+		"-n", namespace,
+		"run", podName,
+		"--restart=Never",
+		"--image", image,
+		"--env", "KAFSCALE_E2E_MODE=" + mode,
+		"--env", "KAFSCALE_E2E_BROKER_ADDR=" + brokerAddr,
+		"--env", "KAFSCALE_E2E_TOPIC=" + topic,
+		"--env", fmt.Sprintf("KAFSCALE_E2E_COUNT=%d", count),
+		"--env", fmt.Sprintf("KAFSCALE_E2E_TIMEOUT_SEC=%d", timeoutSec),
+	}
+	if err := execCommand(ctx, "kubectl", args...); err != nil {
+		return fmt.Errorf("start e2e client pod: %w", err)
+	}
+	if err := waitForPodPhase(ctx, namespace, podName, "Succeeded", 90*time.Second); err != nil {
+		logs := runCmdWithOutput(t, ctx, "kubectl", "-n", namespace, "logs", "pod/"+podName)
+		_ = execCommand(ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+		return fmt.Errorf("e2e client pod failed: %w\nlogs:\n%s", err, string(logs))
+	}
+	_ = execCommand(ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+	return nil
+}
+
+func runE2EClientExpectFailure(t *testing.T, ctx context.Context, namespace, image, mode, brokerAddr, topic string, count int, timeoutSec int) error {
+	t.Helper()
+	podName := fmt.Sprintf("kafscale-e2e-%s-%d", mode, time.Now().UnixNano())
+	args := []string{
+		"-n", namespace,
+		"run", podName,
+		"--restart=Never",
+		"--image", image,
+		"--env", "KAFSCALE_E2E_MODE=" + mode,
+		"--env", "KAFSCALE_E2E_BROKER_ADDR=" + brokerAddr,
+		"--env", "KAFSCALE_E2E_TOPIC=" + topic,
+		"--env", fmt.Sprintf("KAFSCALE_E2E_COUNT=%d", count),
+		"--env", fmt.Sprintf("KAFSCALE_E2E_TIMEOUT_SEC=%d", timeoutSec),
+	}
+	if err := execCommand(ctx, "kubectl", args...); err != nil {
+		return fmt.Errorf("start e2e client pod: %w", err)
+	}
+	if err := waitForPodPhase(ctx, namespace, podName, "Failed", 90*time.Second); err != nil {
+		logs := runCmdWithOutput(t, ctx, "kubectl", "-n", namespace, "logs", "pod/"+podName)
+		_ = execCommand(ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+		return fmt.Errorf("expected failure but pod did not fail: %w\nlogs:\n%s", err, string(logs))
+	}
+	_ = execCommand(ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+	return nil
+}
+
+func waitForPodPhase(ctx context.Context, namespace, podName, phase string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out, err := exec.CommandContext(ctx, "kubectl", "-n", namespace, "get", "pod", podName, "-o", "jsonpath={.status.phase}").Output()
+		if err == nil && strings.TrimSpace(string(out)) == phase {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for pod %s phase %s", podName, phase)
+}
+
+func waitForServiceEndpoints(t *testing.T, ctx context.Context, namespace, service string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out := runCmdWithOutput(t, ctx, "kubectl", "-n", namespace, "get", "endpoints", service, "-o", "jsonpath={.subsets[*].addresses[*].ip}")
+		if strings.TrimSpace(string(out)) != "" {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for service endpoints for %s", service)
+}
+
+func touchClusterAnnotation(t *testing.T, ctx context.Context, namespace, name string) {
+	t.Helper()
+	key := "kafscale.io/reconcile-at"
+	value := fmt.Sprintf("%d", time.Now().UnixNano())
+	runCmdGetOutput(t, ctx, "kubectl", "-n", namespace, "annotate", "kafscalecluster/"+name, key+"="+value, "--overwrite")
+}
+
+func waitForPodDeletion(t *testing.T, ctx context.Context, namespace, selector string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out := runCmdWithOutput(t, ctx, "kubectl", "-n", namespace, "get", "pods", "-l", selector, "-o", "name")
+		if strings.TrimSpace(string(out)) == "" {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for pods with selector %s to be deleted", selector)
+}
+func runPortCheckPod(t *testing.T, ctx context.Context, namespace, image, host string, ports []int) error {
+	t.Helper()
+	podName := fmt.Sprintf("kafscale-portcheck-%d", time.Now().UnixNano())
+	var addrs []string
+	for _, port := range ports {
+		addrs = append(addrs, fmt.Sprintf("%s:%d", host, port))
+	}
+	if err := execCommand(ctx, "kubectl", "-n", namespace, "run", podName, "--restart=Never",
+		"--image", image,
+		"--env", "KAFSCALE_E2E_MODE=probe",
+		"--env", "KAFSCALE_E2E_ADDRS="+strings.Join(addrs, ","),
+		"--env", "KAFSCALE_E2E_PROBE_RETRIES=30",
+		"--env", "KAFSCALE_E2E_PROBE_SLEEP_MS=500"); err != nil {
+		return fmt.Errorf("start port check pod: %w", err)
+	}
+	if err := execCommand(ctx, "kubectl", "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/"+podName, "--timeout=60s"); err != nil {
+		logs := runCmdWithOutput(t, ctx, "kubectl", "-n", namespace, "logs", "pod/"+podName)
+		_ = execCommand(ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+		return fmt.Errorf("port check failed: %w\nlogs:\n%s", err, string(logs))
+	}
+	_ = execCommand(ctx, "kubectl", "-n", namespace, "delete", "pod", podName, "--ignore-not-found=true")
+	return nil
 }
 
 func ensureNamespace(t *testing.T, ctx context.Context, namespace string) {

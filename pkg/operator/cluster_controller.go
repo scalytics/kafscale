@@ -119,6 +119,9 @@ func (r *ClusterReconciler) brokerContainer(cluster *kafscalev1alpha1.KafscaleCl
 		{Name: "KAFSCALE_S3_BUCKET", Value: cluster.Spec.S3.Bucket},
 		{Name: "KAFSCALE_S3_REGION", Value: cluster.Spec.S3.Region},
 		{Name: "KAFSCALE_ETCD_ENDPOINTS", Value: strings.Join(endpoints, ",")},
+		{Name: "KAFSCALE_BROKER_HOST", Value: fmt.Sprintf("%s-broker.%s.svc.cluster.local", cluster.Name, cluster.Namespace)},
+		{Name: "KAFSCALE_BROKER_ADDR", Value: ":9092"},
+		{Name: "KAFSCALE_METRICS_ADDR", Value: ":9093"},
 	}
 	if strings.TrimSpace(cluster.Spec.S3.Endpoint) != "" {
 		env = append(env, corev1.EnvVar{Name: "KAFSCALE_S3_ENDPOINT", Value: cluster.Spec.S3.Endpoint})

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	stdruntime "runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,9 +95,15 @@ func TestOperatorConsoleEndToEnd(t *testing.T) {
 	consoleCtx, consoleCancel := context.WithCancel(ctx)
 	defer consoleCancel()
 	logger := log.New(io.Discard, "", 0)
+	authUser := "demo"
+	authPass := "demo"
 	if err := consolepkg.StartServer(consoleCtx, consoleAddr, consolepkg.ServerOptions{
 		Store:  store,
 		Logger: logger,
+		Auth: consolepkg.AuthConfig{
+			Username: authUser,
+			Password: authPass,
+		},
 	}); err != nil {
 		t.Fatalf("start console: %v", err)
 	}
@@ -113,7 +120,13 @@ func TestOperatorConsoleEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected ui status: %d", resp.StatusCode)
 	}
 
-	statusResp, err := http.Get(consoleURL + "/ui/api/status")
+	sessionCookie := loginConsole(t, consoleURL, authUser, authPass)
+	statusReq, err := http.NewRequest(http.MethodGet, consoleURL+"/ui/api/status", nil)
+	if err != nil {
+		t.Fatalf("build status request: %v", err)
+	}
+	statusReq.AddCookie(sessionCookie)
+	statusResp, err := http.DefaultClient.Do(statusReq)
 	if err != nil {
 		t.Fatalf("GET status: %v", err)
 	}
@@ -200,4 +213,29 @@ func maybeOpenConsoleUI(t *testing.T, url string) {
 	if err := cmd.Start(); err != nil {
 		t.Logf("open UI failed: %v", err)
 	}
+}
+
+func loginConsole(t *testing.T, baseURL, username, password string) *http.Cookie {
+	t.Helper()
+	body := fmt.Sprintf(`{"username":"%s","password":"%s"}`, username, password)
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/ui/api/auth/login", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("build login request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected login status: %d", resp.StatusCode)
+	}
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "kafscale_ui_session" {
+			return cookie
+		}
+	}
+	t.Fatalf("login did not return session cookie")
+	return nil
 }

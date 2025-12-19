@@ -54,10 +54,11 @@ func BuildClusterMetadata(cluster *kafscalev1alpha1.KafscaleCluster, topics []ka
 		replicas = *cluster.Spec.Brokers.Replicas
 	}
 	brokers := make([]protocol.MetadataBroker, replicas)
+	brokerHost := fmt.Sprintf("%s-broker.%s.svc.cluster.local", cluster.Name, cluster.Namespace)
 	for i := int32(0); i < replicas; i++ {
 		brokers[i] = protocol.MetadataBroker{
 			NodeID: i,
-			Host:   fmt.Sprintf("%s-broker-%d.%s-broker.%s.svc.cluster.local", cluster.Name, i, cluster.Name, cluster.Namespace),
+			Host:   brokerHost,
 			Port:   9092,
 		}
 	}
