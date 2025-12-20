@@ -1,3 +1,20 @@
+<!--
+Copyright 2025 Alexander Alten (novatechflow), NovaTechflow (novatechflow.com).
+This project is supported and financed by Scalytics, Inc. (www.scalytics.io).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Development Guide
 
 This document tracks the steps needed to work on Kafscale. It complements the architecture spec in `kafscale-spec.md`.
@@ -57,6 +74,12 @@ Pull requests must include strict test coverage for the changes they introduce. 
 - Add or extend unit tests for all non-trivial logic.
 - Run the relevant e2e suite(s); changes to broker behavior should run `make test-produce-consume` and any related e2e tests.
 - Extend e2e coverage when you fix bugs so regressions are caught earlier.
+
+To add headers to new files, run:
+
+```bash
+python3 hack/license_headers.py
+```
 
 The Makefile defines these as `.PHONY`: `proto`, `build`, `test`, `tidy`, `lint`, `generate`, `docker-build`, `docker-build-broker`, `docker-build-operator`, `docker-build-console`, `docker-build-e2e-client`, `docker-clean`, `ensure-minio`, `start-minio`, `stop-containers`, `release-broker-ports`, `test-produce-consume`, `test-produce-consume-debug`, `test-consumer-group`, `test-operator`, `demo`, `demo-platform`, `help`.
 
