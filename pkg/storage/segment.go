@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	segmentMagic = "KAFS"
-	footerMagic  = "END!"
+	segmentMagic     = "KAFS"
+	footerMagic      = "END!"
 	segmentFooterLen = 16
 )
 

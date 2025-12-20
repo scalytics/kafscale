@@ -24,18 +24,15 @@ on:
     - cron: '0 2 * * 1'
   workflow_dispatch:
 
-permissions:
-  security-events: write
-  id-token: write
-  contents: read
-  actions: read
-  checks: read
-  pull-requests: read
+permissions: read-all
 
 jobs:
   analysis:
     runs-on: ubuntu-latest
     if: ${{ github.event.repository.private == false }}
+    permissions:
+      security-events: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
