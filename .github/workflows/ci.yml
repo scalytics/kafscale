@@ -49,8 +49,11 @@ jobs:
       - name: Prepare Go build cache
         run: mkdir -p "$GOCACHE"
 
-      - name: Run go test ./...
-        run: go test ./...
+      - name: Run go vet ./...
+        run: go vet ./...
+
+      - name: Run go test -race ./...
+        run: go test -race ./...
 
   go-coverage:
     name: Go Coverage Gate
@@ -70,6 +73,13 @@ jobs:
 
       - name: Enforce coverage floor
         run: bash hack/check_coverage.sh 1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          flags: unittests
+          fail_ci_if_error: false
 
   helm-lint:
     name: Helm Lint
