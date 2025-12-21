@@ -65,3 +65,51 @@ Planned security milestones (order may change as requirements evolve):
 
 If you believe you have found a security vulnerability, please follow the
 process in `SECURITY.md`.
+
+## Secure Development Practices
+
+Kafscale is maintained by primary developers who design for secure systems and
+regularly review common classes of vulnerabilities in brokered network services
+(input validation, request smuggling, SSRF, unsafe deserialization, authN/authZ
+gaps, secrets handling, and data integrity). Changes that touch the protocol,
+storage, or operator reconciliation paths require explicit review and tests.
+
+## Cryptography Practices
+
+Kafscale does not implement custom cryptography. When cryptographic primitives
+are required (TLS, SASL, token validation), we rely on standard Go libraries and
+well‑maintained FLOSS dependencies. We do not ship or require broken algorithms
+(e.g., MD5, RC4, single DES). Where TLS is enabled, operators are expected to
+use modern ciphers and key lengths that meet NIST 2030 minimums.
+
+Kafscale does not store end‑user passwords. Console authentication is backed by
+Kubernetes secrets managed by operators. When stronger auth is introduced, we
+will rely on standard key‑stretching schemes (e.g., bcrypt/argon2) and secure
+randomness from the Go standard library.
+
+## Supply Chain and Delivery
+
+Releases are tagged in Git, and GitHub Actions publishes artifacts over HTTPS.
+We do not distribute unsigned artifacts over HTTP. Container images are built
+from pinned base images and published to GHCR.
+
+## Static and Dynamic Analysis
+
+We run static analysis as part of CI and before releases:
+
+- CodeQL (GitHub default setup) for vulnerability‑focused static analysis.
+- `go vet` on every CI run (`make test`).
+- Optional `golangci-lint` via `make lint`.
+
+Dynamic analysis is performed via fuzzing:
+
+- Go fuzz tests run in CI on a schedule (`.github/workflows/fuzz.yml`).
+- Fuzz findings are triaged and fixed promptly when confirmed.
+
+We address medium‑and‑higher severity issues discovered by static or dynamic
+analysis as quickly as possible after validation.
+
+## Vulnerabilities
+
+We aim to resolve known vulnerabilities quickly. If a runtime vulnerability is
+fixed in a release, the associated CVE is documented in `docs/releases/`.

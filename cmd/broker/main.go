@@ -1139,7 +1139,7 @@ func newHandler(store metadata.Store, s3Client storage.S3Client, brokerInfo prot
 		cacheSize = 32 << 20
 	}
 	autoCreate := parseEnvBool("KAFSCALE_AUTO_CREATE_TOPICS", true)
-	autoPartitions := int32(parseEnvInt("KAFSCALE_AUTO_CREATE_PARTITIONS", 1))
+	autoPartitions := parseEnvInt32("KAFSCALE_AUTO_CREATE_PARTITIONS", 1)
 	traceKafka := parseEnvBool("KAFSCALE_TRACE_KAFKA", false)
 	throughputWindow := time.Duration(parseEnvInt("KAFSCALE_THROUGHPUT_WINDOW_SEC", 60)) * time.Second
 	s3Namespace := envOrDefault("KAFSCALE_S3_NAMESPACE", "default")
@@ -1491,6 +1491,24 @@ func parseEnvInt(name string, fallback int) int {
 	return fallback
 }
 
+func parseEnvInt32(name string, fallback int32) int32 {
+	if val := strings.TrimSpace(os.Getenv(name)); val != "" {
+		if parsed, err := strconv.ParseInt(val, 10, 32); err == nil {
+			return int32(parsed)
+		}
+	}
+	return fallback
+}
+
+func intToInt32(value int, fallback int32) int32 {
+	const minInt32 = -1 << 31
+	const maxInt32 = 1<<31 - 1
+	if value < minInt32 || value > maxInt32 {
+		return fallback
+	}
+	return int32(value)
+}
+
 func envOrDefault(name, fallback string) string {
 	if val := strings.TrimSpace(os.Getenv(name)); val != "" {
 		return val
@@ -1573,7 +1591,7 @@ func generateApiVersions() []protocol.ApiVersion {
 }
 
 func buildBrokerInfo() protocol.MetadataBroker {
-	id := parseEnvInt("KAFSCALE_BROKER_ID", 1)
+	id := parseEnvInt32("KAFSCALE_BROKER_ID", 1)
 	host := os.Getenv("KAFSCALE_BROKER_HOST")
 	port := parseEnvInt("KAFSCALE_BROKER_PORT", defaultKafkaPort)
 	if addr := strings.TrimSpace(os.Getenv("KAFSCALE_BROKER_ADDR")); addr != "" {
@@ -1587,9 +1605,9 @@ func buildBrokerInfo() protocol.MetadataBroker {
 		host = "localhost"
 	}
 	return protocol.MetadataBroker{
-		NodeID: int32(id),
+		NodeID: id,
 		Host:   host,
-		Port:   int32(port),
+		Port:   intToInt32(port, int32(defaultKafkaPort)),
 	}
 }
 

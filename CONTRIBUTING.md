@@ -23,6 +23,18 @@ Thanks for your interest in Kafscale! This project follows Apache 2.0 convention
 
 - Use the issue tracker to discuss larger changes.
 - Keep changes focused and add tests for non-trivial logic.
+- Contributions, issues, and code reviews are handled in English so the community can participate globally.
+- Development happens on `main` via PRs; releases are tagged, but the repository always includes interim commits between releases.
+
+## Bug Reports and Feature Requests
+
+We track bugs and enhancements in GitHub Issues:
+
+- Report a bug: https://github.com/novatechflow/kafscale/issues/new?template=bug_report.md
+- Request an enhancement: https://github.com/novatechflow/kafscale/issues/new?template=feature_request.md
+- Browse the public archive: https://github.com/novatechflow/kafscale/issues
+
+We aim to acknowledge new bug reports and enhancement requests within 7 days.
 
 ## License and Headers
 
@@ -41,6 +53,38 @@ Pull requests must include strict test coverage for the changes they introduce. 
 - Extend e2e coverage when fixing bugs so regressions are caught earlier.
 
 CI will run `go test ./...` and enforce a coverage floor.
+
+## Build and Test Tooling (FLOSS)
+
+Kafscale builds and tests with FLOSS tools only:
+
+- Build: Go toolchain + Makefiles (`make build`)
+- Tests: `go test`, `go vet`, Go race detector (`make test`)
+- CI: GitHub Actions workflows (`.github/workflows/ci.yml`)
+
+Common invocations:
+
+- `make build`
+- `make test`
+- `make test-full`
+
+The policy above (tests for new functionality) is enforced in code review and CI.
+
+## Compiler/Linter Warnings
+
+We run `go vet` and the Go race detector in CI (`make test`) and treat warnings as
+fix‑before‑merge. Optional linting is available via `make lint` for contributors
+with `golangci-lint` installed.
+
+## Coding Standards
+
+Contributions must follow the coding standards described in `docs/development.md`
+(see the "Coding Standards" section).
+
+## Release Notes
+
+Each release should include a human-readable note in `docs/releases/` that summarizes
+major changes and explicitly lists any known CVE fixes (or "None").
 
 ## Development Workflow
 
