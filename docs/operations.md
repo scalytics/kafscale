@@ -69,7 +69,7 @@ helm upgrade --install kafscale deploy/helm/kafscale \
   --set console.auth.password='use-a-secret'
 ```
 
-- **TLS** – Brokers and the console ship HTTPS/TLS flags (`KAFSCALE_BROKER_TLS_*`, `KAFSCALE_CONSOLE_TLS_*`).  Mount certs as secrets via the Helm values and set the env vars to force TLS for client connections.
+- **TLS** – Terminate TLS at your ingress or service mesh; broker/console TLS env flags are not wired in v1.
 - **Network policies** – If your cluster enforces policies, allow the operator + brokers to reach etcd and S3 endpoints and lock everything else down.
 - **Health / metrics** – Prometheus can scrape `/metrics` on the brokers and operator for early detection of S3 pressure or degraded nodes. The operator exposes metrics on port `8080` and the Helm chart can create a metrics Service, ServiceMonitor, and PrometheusRule.
 - **Startup gating** – Broker pods exit immediately if they cannot read metadata or write a probe object to S3 during startup, so Kubernetes restarts them rather than leaving a stuck listener in place.
@@ -177,7 +177,7 @@ Recommended operator alerting (when using Prometheus Operator):
 - `KAFSCALE_OPERATOR_ETCD_SNAPSHOT_CREATE_BUCKET` – Auto-create the snapshot bucket (`1` to enable).
 - `KAFSCALE_OPERATOR_ETCD_SNAPSHOT_PROTECT_BUCKET` – Enable versioning + public access block (`1` to enable).
 - `KAFSCALE_OPERATOR_ETCD_SNAPSHOT_SKIP_PREFLIGHT` – Skip the S3 write preflight (`1` to enable).
-- `KAFSCALE_OPERATOR_LEADER_KEY` – Reserved (leader election ID is currently fixed in the operator binary).
+- `KAFSCALE_OPERATOR_LEADER_KEY` – Override the operator leader election ID (default `kafscale-operator`).
 - `KAFSCALE_S3_NAMESPACE` – Prefix used for broker S3 object keys (defaults to the cluster namespace).
 - `KAFSCALE_SEGMENT_BYTES` – Broker segment flush threshold in bytes (default `4194304`).
 - `KAFSCALE_FLUSH_INTERVAL_MS` – Broker flush interval in milliseconds (default `500`).
@@ -201,6 +201,15 @@ Recommended operator alerting (when using Prometheus Operator):
 - `KAFSCALE_S3_PATH_STYLE` – Force path-style addressing (`true/false`).
 - `KAFSCALE_S3_KMS_ARN` – KMS key ARN for SSE-KMS.
 - `KAFSCALE_S3_ACCESS_KEY`, `KAFSCALE_S3_SECRET_KEY`, `KAFSCALE_S3_SESSION_TOKEN` – S3 credentials.
+
+Read replica example (multi-region reads):
+
+```bash
+export KAFSCALE_S3_BUCKET=prod-segments
+export KAFSCALE_S3_REGION=us-east-1
+export KAFSCALE_S3_READ_BUCKET=prod-segments-replica
+export KAFSCALE_S3_READ_REGION=eu-west-1
+```
 - `KAFSCALE_CACHE_BYTES` – Broker cache size in bytes.
 - `KAFSCALE_READAHEAD_SEGMENTS` – Segment readahead count.
 - `KAFSCALE_AUTO_CREATE_TOPICS` – Auto-create topics (`true/false`).

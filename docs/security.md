@@ -28,8 +28,8 @@ and the boundaries of what is and is not supported in v1.
   `KAFSCALE_UI_USERNAME` / `KAFSCALE_UI_PASSWORD`.
 - **Authorization**: none. All broker APIs are unauthenticated and authorized
   implicitly. This includes admin APIs such as CreatePartitions and DeleteGroups.
-- **Transport Security**: TLS is optional and must be enabled by operators via
-  `KAFSCALE_BROKER_TLS_*` and `KAFSCALE_CONSOLE_TLS_*`. Plaintext is the default.
+- **Transport Security**: TLS termination is expected at the ingress or mesh
+  layer in v1; brokers and the console speak plaintext by default.
 - **Secrets Handling**: S3 credentials are read from Kubernetes secrets and are
   not written to etcd or source control. The operator projects secrets into pods.
 - **Data at Rest**: data is stored in S3 and etcd; encryption at rest depends on
