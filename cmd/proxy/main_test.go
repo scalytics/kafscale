@@ -134,6 +134,47 @@ func TestBuildNotReadyResponseFetch(t *testing.T) {
 	}
 }
 
+func TestSplitCSV(t *testing.T) {
+	parts := splitCSV(" a, ,b,, c ")
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts got %d", len(parts))
+	}
+	if parts[0] != "a" || parts[1] != "b" || parts[2] != "c" {
+		t.Fatalf("unexpected parts: %v", parts)
+	}
+	if out := splitCSV("   "); out != nil {
+		t.Fatalf("expected nil for empty input, got %v", out)
+	}
+}
+
+func TestEnvParsingHelpers(t *testing.T) {
+	t.Setenv("PROXY_PORT", "9093")
+	t.Setenv("PROXY_INT", "42")
+	if got := envPort("PROXY_PORT", 9092); got != 9093 {
+		t.Fatalf("expected 9093 got %d", got)
+	}
+	if got := envInt("PROXY_INT", 1); got != 42 {
+		t.Fatalf("expected 42 got %d", got)
+	}
+	t.Setenv("PROXY_PORT", "bad")
+	t.Setenv("PROXY_INT", "bad")
+	if got := envPort("PROXY_PORT", 9092); got != 9092 {
+		t.Fatalf("expected fallback got %d", got)
+	}
+	if got := envInt("PROXY_INT", 7); got != 7 {
+		t.Fatalf("expected fallback got %d", got)
+	}
+}
+
+func TestPortFromAddr(t *testing.T) {
+	if got := portFromAddr("127.0.0.1:9099", 9092); got != 9099 {
+		t.Fatalf("expected port 9099 got %d", got)
+	}
+	if got := portFromAddr("bad", 9092); got != 9092 {
+		t.Fatalf("expected fallback got %d", got)
+	}
+}
+
 type testWriter struct {
 	buf bytes.Buffer
 }
