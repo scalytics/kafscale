@@ -1,0 +1,16 @@
+{
+  "kafka": {
+    "clientId": "js-agent-demo",
+    "brokers": ["localhost:9092"]
+  },
+  "topics": {
+    "requests": "agent.requests",
+    "internal": "agent.internal",
+    "responses": "agent.responses"
+  },
+  "agent": {
+    "systemPrompt": "You are a helpful technical writing agent.",
+    "model": "stub-llm",
+    "temperature": 0.3
+  }
+}
