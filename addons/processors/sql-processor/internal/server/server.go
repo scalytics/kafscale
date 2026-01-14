@@ -170,6 +170,8 @@ func (s *Server) handleQuery(ctx context.Context, backend *pgproto3.Backend, que
 	start := time.Now()
 	metrics.ActiveQueries.Inc()
 	defer metrics.ActiveQueries.Dec()
+	ctx, cancel := s.withQueryTimeout(ctx)
+	defer cancel()
 
 	if result, handled, err := s.handleCatalogQuery(ctx, backend, query); handled {
 		status := "success"
@@ -179,12 +181,32 @@ func (s *Server) handleQuery(ctx context.Context, backend *pgproto3.Backend, que
 		metrics.QueriesTotal.WithLabelValues("catalog", status).Inc()
 		metrics.QueryDuration.WithLabelValues("catalog", status).Observe(float64(time.Since(start).Milliseconds()))
 		metrics.QueryRows.WithLabelValues("catalog").Add(float64(result.rows))
-		s.logger.Printf("query_complete type=catalog status=%s duration_ms=%d rows=%d segments=%d bytes=%d",
+		s.logger.Printf("query_complete type=catalog status=%s duration_ms=%d rows=%d segments=%d bytes=%d query=%q",
 			status,
 			time.Since(start).Milliseconds(),
 			result.rows,
 			result.segments,
 			result.bytes,
+			trimQuery(query),
+		)
+		return err
+	}
+
+	if result, handled, err := s.handleSetCommand(ctx, backend, query); handled {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		metrics.QueriesTotal.WithLabelValues("set", status).Inc()
+		metrics.QueryDuration.WithLabelValues("set", status).Observe(float64(time.Since(start).Milliseconds()))
+		metrics.QueryRows.WithLabelValues("set").Add(float64(result.rows))
+		s.logger.Printf("query_complete type=set status=%s duration_ms=%d rows=%d segments=%d bytes=%d query=%q",
+			status,
+			time.Since(start).Milliseconds(),
+			result.rows,
+			result.segments,
+			result.bytes,
+			trimQuery(query),
 		)
 		return err
 	}
@@ -193,7 +215,7 @@ func (s *Server) handleQuery(ctx context.Context, backend *pgproto3.Backend, que
 	if err != nil {
 		metrics.QueriesTotal.WithLabelValues("parse", "error").Inc()
 		metrics.QueryDuration.WithLabelValues("parse", "error").Observe(float64(time.Since(start).Milliseconds()))
-		s.logger.Printf("query_error type=parse err=%v", err)
+		s.logger.Printf("query_error type=parse err=%v query=%q", err, trimQuery(query))
 		return err
 	}
 
@@ -210,13 +232,14 @@ func (s *Server) handleQuery(ctx context.Context, backend *pgproto3.Backend, que
 	metrics.QuerySegments.Add(float64(result.segments))
 	metrics.QueryBytes.Add(float64(result.bytes))
 
-	s.logger.Printf("query_complete type=%s status=%s duration_ms=%d rows=%d segments=%d bytes=%d",
+	s.logger.Printf("query_complete type=%s status=%s duration_ms=%d rows=%d segments=%d bytes=%d query=%q",
 		queryType,
 		status,
 		time.Since(start).Milliseconds(),
 		result.rows,
 		result.segments,
 		result.bytes,
+		trimQuery(query),
 	)
 	return execErr
 }
@@ -258,6 +281,28 @@ func (s *Server) handleCatalogQuery(ctx context.Context, backend *pgproto3.Backe
 	}
 }
 
+func (s *Server) handleSetCommand(ctx context.Context, backend *pgproto3.Backend, query string) (queryResult, bool, error) {
+	_ = ctx
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return queryResult{}, false, nil
+	}
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "set "):
+		if err := backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SET")}); err != nil {
+			return queryResult{}, true, err
+		}
+		return queryResult{}, true, nil
+	case strings.HasPrefix(lower, "reset "):
+		if err := backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("RESET")}); err != nil {
+			return queryResult{}, true, err
+		}
+		return queryResult{}, true, nil
+	}
+	return queryResult{}, false, nil
+}
+
 type queryResult struct {
 	rows     int
 	segments int
@@ -269,7 +314,9 @@ type columnKind int
 const (
 	columnImplicit columnKind = iota
 	columnSchema
-	columnJSON
+	columnJSONValue
+	columnJSONQuery
+	columnJSONExists
 )
 
 type resolvedColumn struct {
@@ -345,6 +392,8 @@ func (s *Server) executeQuery(ctx context.Context, backend *pgproto3.Backend, pa
 		return queryResult{rows: rows}, err
 	case kafsql.QuerySelect:
 		return s.handleSelect(ctx, backend, parsed)
+	case kafsql.QueryExplain:
+		return s.handleExplain(ctx, backend, parsed)
 	default:
 		return queryResult{}, errors.New("KAFSQL query execution not implemented")
 	}
@@ -403,6 +452,155 @@ func (s *Server) handleShowPartitions(ctx context.Context, backend *pgproto3.Bac
 	}
 	_ = backend.Send(&pgproto3.CommandComplete{CommandTag: commandTag(len(partitions))})
 	return len(partitions), nil
+}
+
+func (s *Server) handleExplain(ctx context.Context, backend *pgproto3.Backend, parsed kafsql.Query) (queryResult, error) {
+	if parsed.Explain == nil {
+		return queryResult{}, errors.New("explain requires query")
+	}
+	inner := *parsed.Explain
+	lines, err := s.explainQuery(ctx, inner)
+	if err != nil {
+		return queryResult{}, err
+	}
+
+	fields := []pgproto3.FieldDescription{
+		{Name: []byte("plan"), DataTypeOID: 25, DataTypeSize: -1, TypeModifier: -1, Format: 0},
+	}
+	if err := backend.Send(&pgproto3.RowDescription{Fields: fields}); err != nil {
+		return queryResult{}, err
+	}
+	for _, line := range lines {
+		if err := backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte(line)}}); err != nil {
+			return queryResult{}, err
+		}
+	}
+	_ = backend.Send(&pgproto3.CommandComplete{CommandTag: commandTag(len(lines))})
+	return queryResult{rows: len(lines)}, nil
+}
+
+func (s *Server) explainQuery(ctx context.Context, parsed kafsql.Query) ([]string, error) {
+	if parsed.Type != kafsql.QuerySelect {
+		return nil, errors.New("explain supports select only")
+	}
+	if parsed.Topic == "" {
+		return nil, errors.New("select requires a topic")
+	}
+	if s.cfg.Query.RequireTimeBound && !parsed.ScanFull && parsed.Last == "" && parsed.Tail == "" && parsed.TsMin == nil && parsed.TsMax == nil {
+		return nil, errors.New("unbounded query: add LAST, TAIL, or SCAN FULL")
+	}
+
+	lister, err := s.getLister()
+	if err != nil {
+		return nil, err
+	}
+	segments, err := lister.ListCompleted(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	timeMin := parsed.TsMin
+	timeMax := parsed.TsMax
+	if parsed.Last != "" {
+		window, err := parseDuration(parsed.Last)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC().UnixMilli()
+		start := now - window.Milliseconds()
+		timeMin = maxInt64Ptr(timeMin, start)
+		if timeMax == nil {
+			timeMax = &now
+		}
+	}
+
+	if parsed.JoinTopic != "" {
+		return s.explainJoin(parsed, segments, timeMin, timeMax)
+	}
+	return s.explainSelect(parsed, segments, timeMin, timeMax)
+}
+
+func (s *Server) explainSelect(parsed kafsql.Query, segments []discovery.SegmentRef, timeMin *int64, timeMax *int64) ([]string, error) {
+	candidates := filterSegments(parsed, segments, timeMin, timeMax)
+	estBytes := estimateBytes(candidates)
+	lines := []string{
+		"Query Plan",
+		fmt.Sprintf("  Scan: %s", parsed.Topic),
+		fmt.Sprintf("  Segments: %d", len(candidates)),
+		fmt.Sprintf("  Estimated bytes: %s", formatBytes(estBytes)),
+	}
+	return lines, nil
+}
+
+func (s *Server) explainJoin(parsed kafsql.Query, segments []discovery.SegmentRef, timeMin *int64, timeMax *int64) ([]string, error) {
+	left := parsed
+	left.JoinTopic = ""
+	right := parsed
+	right.Topic = parsed.JoinTopic
+	right.Partition = nil
+	right.OffsetMin = nil
+	right.OffsetMax = nil
+
+	leftSegments := filterSegments(left, segments, timeMin, timeMax)
+	rightSegments := filterSegments(right, segments, nil, nil)
+	estBytes := estimateBytes(leftSegments) + estimateBytes(rightSegments)
+
+	lines := []string{
+		"Query Plan",
+		fmt.Sprintf("  Join: %s %s %s", parsed.Topic, strings.ToUpper(parsed.JoinType), parsed.JoinTopic),
+		fmt.Sprintf("  Left segments: %d", len(leftSegments)),
+		fmt.Sprintf("  Right segments: %d", len(rightSegments)),
+		fmt.Sprintf("  Estimated bytes: %s", formatBytes(estBytes)),
+	}
+	return lines, nil
+}
+
+func filterSegments(parsed kafsql.Query, segments []discovery.SegmentRef, timeMin *int64, timeMax *int64) []discovery.SegmentRef {
+	out := make([]discovery.SegmentRef, 0)
+	for _, segment := range segments {
+		if segment.Topic != parsed.Topic {
+			continue
+		}
+		if parsed.Partition != nil && segment.Partition != *parsed.Partition {
+			continue
+		}
+		if !segmentMatchesOffsets(segment, parsed.OffsetMin, parsed.OffsetMax) {
+			continue
+		}
+		if !segmentMatchesTimestamps(segment, timeMin, timeMax) {
+			continue
+		}
+		out = append(out, segment)
+	}
+	return out
+}
+
+func estimateBytes(segments []discovery.SegmentRef) int64 {
+	total := int64(0)
+	for _, segment := range segments {
+		if segment.SizeBytes > 0 {
+			total += segment.SizeBytes
+		}
+	}
+	return total
+}
+
+func formatBytes(value int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case value >= gb:
+		return fmt.Sprintf("%.2f GB", float64(value)/float64(gb))
+	case value >= mb:
+		return fmt.Sprintf("%.2f MB", float64(value)/float64(mb))
+	case value >= kb:
+		return fmt.Sprintf("%.2f KB", float64(value)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", value)
+	}
 }
 
 func (s *Server) catalogTables(ctx context.Context, backend *pgproto3.Backend) (int, error) {
@@ -734,6 +932,9 @@ func (s *Server) handleSelect(ctx context.Context, backend *pgproto3.Backend, pa
 	if limit <= 0 {
 		limit = s.cfg.Query.DefaultLimit
 	}
+	if s.cfg.Query.MaxRows > 0 && limit > s.cfg.Query.MaxRows {
+		return queryResult{}, fmt.Errorf("limit exceeds max_rows (%d)", s.cfg.Query.MaxRows)
+	}
 	if parsed.ScanFull && limit > s.cfg.Query.MaxUnbounded {
 		return queryResult{}, fmt.Errorf("scan full limit exceeds max_unbounded_scan (%d)", s.cfg.Query.MaxUnbounded)
 	}
@@ -776,6 +977,11 @@ func (s *Server) handleSelect(ctx context.Context, backend *pgproto3.Backend, pa
 		return queryResult{}, errors.New("time window is invalid")
 	}
 
+	candidates := filterSegments(parsed, segments, timeMin, timeMax)
+	if err := s.enforceScanLimits(len(candidates), estimateBytes(candidates)); err != nil {
+		return queryResult{}, err
+	}
+
 	if hasAggregates(parsed.Select) {
 		if parsed.OrderBy != "" {
 			return queryResult{}, errors.New("order by not supported with aggregates")
@@ -783,7 +989,7 @@ func (s *Server) handleSelect(ctx context.Context, backend *pgproto3.Backend, pa
 		if parsed.Tail != "" {
 			return queryResult{}, errors.New("tail not supported with aggregates")
 		}
-		return s.handleAggregateSelect(ctx, backend, parsed, segments, timeMin, timeMax, limit)
+		return s.handleAggregateSelect(ctx, backend, parsed, candidates, timeMin, timeMax, limit)
 	}
 
 	resolvedCols, err := s.resolveSelectColumns(parsed.Topic, parsed.Select)
@@ -800,12 +1006,9 @@ func (s *Server) handleSelect(ctx context.Context, backend *pgproto3.Backend, pa
 	bytesScanned := int64(0)
 	var rows []rowResult
 	var tailRows []rowResult
-	for _, segment := range segments {
-		if segment.Topic != parsed.Topic {
-			continue
-		}
-		if parsed.Partition != nil && segment.Partition != *parsed.Partition {
-			continue
+	for _, segment := range candidates {
+		if err := ctx.Err(); err != nil {
+			return queryResult{}, err
 		}
 		segmentsScanned++
 		records, err := dec.Decode(ctx, segment.SegmentKey, segment.IndexKey, segment.Topic, segment.Partition)
@@ -918,7 +1121,19 @@ func (s *Server) resolveSelectColumns(topic string, cols []kafsql.SelectColumn) 
 			if name == "" {
 				name = "json_value"
 			}
-			out = append(out, resolvedColumn{Name: name, Kind: columnJSON, JSONPath: col.JSONPath})
+			out = append(out, resolvedColumn{Name: name, Kind: columnJSONValue, JSONPath: col.JSONPath})
+		case kafsql.SelectColumnJSONQuery:
+			name := col.Alias
+			if name == "" {
+				name = "json_query"
+			}
+			out = append(out, resolvedColumn{Name: name, Kind: columnJSONQuery, JSONPath: col.JSONPath})
+		case kafsql.SelectColumnJSONExists:
+			name := col.Alias
+			if name == "" {
+				name = "json_exists"
+			}
+			out = append(out, resolvedColumn{Name: name, Kind: columnJSONExists, JSONPath: col.JSONPath})
 		case kafsql.SelectColumnField:
 			resolved, err := s.resolveColumnByName(topic, col.Column, schemaMap)
 			if err != nil {
@@ -992,8 +1207,12 @@ func columnTypeOID(col resolvedColumn) uint32 {
 	switch col.Kind {
 	case columnSchema:
 		return schemaTypeOID(col.Schema.Type)
-	case columnJSON:
+	case columnJSONValue:
 		return 25
+	case columnJSONQuery:
+		return 114
+	case columnJSONExists:
+		return 16
 	default:
 		switch col.Column {
 		case "_partition":
@@ -1018,8 +1237,12 @@ func columnValue(ctx rowContext, col resolvedColumn) []byte {
 	switch col.Kind {
 	case columnSchema:
 		return schemaValue(record.Value, col.Schema, record.Topic)
-	case columnJSON:
+	case columnJSONValue:
 		return jsonValueBytes(record.Value, col.JSONPath)
+	case columnJSONQuery:
+		return jsonQueryBytes(record.Value, col.JSONPath)
+	case columnJSONExists:
+		return jsonExistsBytes(record.Value, col.JSONPath)
 	default:
 		switch col.Column {
 		case "_topic":
@@ -1075,6 +1298,39 @@ func jsonValueBytes(payload []byte, path string) []byte {
 	}
 }
 
+func jsonQueryBytes(payload []byte, path string) []byte {
+	value, ok := jsonLookup(payload, path, "")
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func jsonExistsBytes(payload []byte, path string) []byte {
+	root, ok := parseJSON(payload)
+	if !ok {
+		return nil
+	}
+	_, found := jsonPathValue(root, path, "")
+	if found {
+		return []byte("true")
+	}
+	return []byte("false")
+}
+
+func parseJSON(payload []byte) (interface{}, bool) {
+	var root interface{}
+	if err := json.Unmarshal(payload, &root); err != nil {
+		metrics.InvalidJSON.Inc()
+		return nil, false
+	}
+	return root, true
+}
+
 func maxInt64Ptr(current *int64, value int64) *int64 {
 	if current == nil || value > *current {
 		return &value
@@ -1120,11 +1376,8 @@ func (s *Server) handleAggregateSelect(ctx context.Context, backend *pgproto3.Ba
 	segmentsScanned := 0
 	bytesScanned := int64(0)
 	for _, segment := range segments {
-		if segment.Topic != parsed.Topic {
-			continue
-		}
-		if parsed.Partition != nil && segment.Partition != *parsed.Partition {
-			continue
+		if err := ctx.Err(); err != nil {
+			return queryResult{}, err
 		}
 		segmentsScanned++
 		records, err := dec.Decode(ctx, segment.SegmentKey, segment.IndexKey, segment.Topic, segment.Partition)
@@ -1244,8 +1497,8 @@ func (s *Server) buildAggregatePlan(parsed kafsql.Query) (aggregatePlan, error) 
 				GroupIdx: idx,
 				DataType: columnTypeOID(groupCols[idx]),
 			})
-		case kafsql.SelectColumnJSONValue:
-			return aggregatePlan{}, errors.New("json_value is not supported in group by")
+		case kafsql.SelectColumnJSONValue, kafsql.SelectColumnJSONQuery, kafsql.SelectColumnJSONExists:
+			return aggregatePlan{}, errors.New("json helpers are not supported in group by")
 		case kafsql.SelectColumnStar:
 			return aggregatePlan{}, errors.New("select * is not supported with aggregates")
 		default:
@@ -1270,7 +1523,7 @@ func (s *Server) buildAggSpec(topic string, sel kafsql.SelectColumn, schemaMap m
 			Kind: aggArgColumn,
 			Column: resolvedColumn{
 				Name:     "json_value",
-				Kind:     columnJSON,
+				Kind:     columnJSONValue,
 				JSONPath: sel.AggJSONPath,
 			},
 		}
@@ -1386,7 +1639,7 @@ func aggValueFromColumn(ctx rowContext, col resolvedColumn) (aggValue, bool) {
 		}
 	case columnSchema:
 		return aggValueFromSchema(record.Value, col.Schema, record.Topic)
-	case columnJSON:
+	case columnJSONValue:
 		return aggValueFromJSON(record.Value, col.JSONPath)
 	default:
 		return aggValue{}, false
@@ -1539,6 +1792,38 @@ func buildAggregateRow(plan aggregatePlan, state *groupState) [][]byte {
 	return values
 }
 
+func segmentMatchesOffsets(segment discovery.SegmentRef, min *int64, max *int64) bool {
+	if min == nil && max == nil {
+		return true
+	}
+	if segment.MinOffset == nil && segment.MaxOffset == nil {
+		return true
+	}
+	if min != nil && segment.MaxOffset != nil && *segment.MaxOffset < *min {
+		return false
+	}
+	if max != nil && segment.MinOffset != nil && *segment.MinOffset > *max {
+		return false
+	}
+	return true
+}
+
+func segmentMatchesTimestamps(segment discovery.SegmentRef, min *int64, max *int64) bool {
+	if min == nil && max == nil {
+		return true
+	}
+	if segment.MinTimestamp == nil && segment.MaxTimestamp == nil {
+		return true
+	}
+	if min != nil && segment.MaxTimestamp != nil && *segment.MaxTimestamp < *min {
+		return false
+	}
+	if max != nil && segment.MinTimestamp != nil && *segment.MinTimestamp > *max {
+		return false
+	}
+	return true
+}
+
 func aggStateValue(state aggState, spec aggSpec) []byte {
 	switch spec.Func {
 	case "count":
@@ -1628,6 +1913,9 @@ func (s *Server) handleJoinSelect(ctx context.Context, backend *pgproto3.Backend
 	if limit <= 0 {
 		limit = s.cfg.Query.DefaultLimit
 	}
+	if s.cfg.Query.MaxRows > 0 && limit > s.cfg.Query.MaxRows {
+		return queryResult{}, fmt.Errorf("limit exceeds max_rows (%d)", s.cfg.Query.MaxRows)
+	}
 
 	joinOn := parsed.JoinOn
 	if joinOn == nil {
@@ -1661,20 +1949,55 @@ func (s *Server) handleJoinSelect(ctx context.Context, backend *pgproto3.Backend
 		return queryResult{}, err
 	}
 
-	leftRecords, leftBytes, err := s.loadRecords(ctx, dec, segments, parsed.Topic)
+	timeMin := parsed.TsMin
+	timeMax := parsed.TsMax
+	if parsed.Last != "" {
+		window, err := parseDuration(parsed.Last)
+		if err != nil {
+			return queryResult{}, err
+		}
+		now := time.Now().UTC().UnixMilli()
+		start := now - window.Milliseconds()
+		timeMin = maxInt64Ptr(timeMin, start)
+		if timeMax == nil {
+			timeMax = &now
+		}
+	}
+	if timeMin != nil && timeMax != nil && *timeMax < *timeMin {
+		return queryResult{}, errors.New("time window is invalid")
+	}
+
+	leftParsed := parsed
+	leftParsed.JoinTopic = ""
+	leftSegments := filterSegments(leftParsed, segments, timeMin, timeMax)
+	rightParsed := parsed
+	rightParsed.Topic = parsed.JoinTopic
+	rightParsed.Partition = nil
+	rightParsed.OffsetMin = nil
+	rightParsed.OffsetMax = nil
+	rightSegments := filterSegments(rightParsed, segments, nil, nil)
+
+	if err := s.enforceScanLimits(len(leftSegments)+len(rightSegments), estimateBytes(leftSegments)+estimateBytes(rightSegments)); err != nil {
+		return queryResult{}, err
+	}
+
+	leftRecords, leftBytes, err := s.loadRecords(ctx, dec, leftSegments, parsed.Topic)
 	if err != nil {
 		return queryResult{}, err
 	}
-	rightRecords, rightBytes, err := s.loadRecords(ctx, dec, segments, parsed.JoinTopic)
+	rightRecords, rightBytes, err := s.loadRecords(ctx, dec, rightSegments, parsed.JoinTopic)
 	if err != nil {
 		return queryResult{}, err
 	}
 
 	rightByKey := groupByJoinKey(rightRecords, joinOn.Right)
 	sent := 0
-	segmentsScanned := segmentsByTopic(segments, parsed.Topic) + segmentsByTopic(segments, parsed.JoinTopic)
+	segmentsScanned := len(leftSegments) + len(rightSegments)
 	bytesScanned := leftBytes + rightBytes
 	for _, left := range leftRecords {
+		if err := ctx.Err(); err != nil {
+			return queryResult{}, err
+		}
 		if left.Record.Timestamp < windowStart.UnixMilli() {
 			continue
 		}
@@ -1743,6 +2066,9 @@ func (s *Server) loadRecords(ctx context.Context, dec decoder.Decoder, segments 
 	out := make([]joinRecord, 0)
 	bytesScanned := int64(0)
 	for _, segment := range segments {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
 		if segment.Topic != topic {
 			continue
 		}
@@ -1793,17 +2119,39 @@ func (s *Server) resolveJoinColumns(parsed kafsql.Query) ([]resolvedColumn, erro
 			if sel.Alias != "" {
 				col.Name = sel.Alias
 			} else {
-				col.Name = joinOutputName(side, col.Name, col.Kind)
+				col.Name = joinOutputName(side, col.Name)
 			}
 			out = append(out, col)
 		case kafsql.SelectColumnJSONValue:
 			name := sel.Alias
 			if name == "" {
-				name = joinOutputName(side, "json_value", columnJSON)
+				name = joinOutputName(side, "json_value")
 			}
 			out = append(out, resolvedColumn{
 				Name:     name,
-				Kind:     columnJSON,
+				Kind:     columnJSONValue,
+				JSONPath: sel.JSONPath,
+				Source:   side,
+			})
+		case kafsql.SelectColumnJSONQuery:
+			name := sel.Alias
+			if name == "" {
+				name = joinOutputName(side, "json_query")
+			}
+			out = append(out, resolvedColumn{
+				Name:     name,
+				Kind:     columnJSONQuery,
+				JSONPath: sel.JSONPath,
+				Source:   side,
+			})
+		case kafsql.SelectColumnJSONExists:
+			name := sel.Alias
+			if name == "" {
+				name = joinOutputName(side, "json_exists")
+			}
+			out = append(out, resolvedColumn{
+				Name:     name,
+				Kind:     columnJSONExists,
 				JSONPath: sel.JSONPath,
 				Source:   side,
 			})
@@ -1824,12 +2172,9 @@ func joinSideFromSource(parsed kafsql.Query, source string) string {
 	return "left"
 }
 
-func joinOutputName(side string, name string, kind columnKind) string {
+func joinOutputName(side string, name string) string {
 	if side != "right" {
 		return name
-	}
-	if kind == columnJSON {
-		return "_right_json_value"
 	}
 	if strings.HasPrefix(name, "_") {
 		return "_right" + name
@@ -2005,15 +2350,18 @@ func schemaValue(payload []byte, schema config.SchemaColumn, topic string) []byt
 }
 
 func jsonLookup(payload []byte, path string, topic string) (interface{}, bool) {
+	root, ok := parseJSON(payload)
+	if !ok {
+		return nil, false
+	}
+	return jsonPathValue(root, path, topic)
+}
+
+func jsonPathValue(root interface{}, path string, topic string) (interface{}, bool) {
 	trimmed := strings.TrimSpace(path)
 	trimmed = strings.TrimPrefix(trimmed, "$.")
 	trimmed = strings.TrimPrefix(trimmed, "$")
 	if trimmed == "" {
-		return nil, false
-	}
-	var root interface{}
-	if err := json.Unmarshal(payload, &root); err != nil {
-		metrics.InvalidJSON.Inc()
 		return nil, false
 	}
 	current := root
@@ -2090,6 +2438,23 @@ func commandTag(rows int) []byte {
 	return []byte("SELECT " + itoa(rows))
 }
 
+func (s *Server) withQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if s.cfg.Query.TimeoutSeconds <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, time.Duration(s.cfg.Query.TimeoutSeconds)*time.Second)
+}
+
+func (s *Server) enforceScanLimits(segments int, bytes int64) error {
+	if s.cfg.Query.MaxScanSegments > 0 && segments > s.cfg.Query.MaxScanSegments {
+		return fmt.Errorf("scan segments exceeds max_scan_segments (%d)", s.cfg.Query.MaxScanSegments)
+	}
+	if s.cfg.Query.MaxScanBytes > 0 && bytes > 0 && bytes > s.cfg.Query.MaxScanBytes {
+		return fmt.Errorf("scan bytes exceeds max_scan_bytes (%s)", formatBytes(s.cfg.Query.MaxScanBytes))
+	}
+	return nil
+}
+
 func parseDuration(raw string) (time.Duration, error) {
 	if strings.HasSuffix(raw, "d") {
 		value := strings.TrimSuffix(raw, "d")
@@ -2148,4 +2513,12 @@ func itoa64(value int64) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+func trimQuery(query string) string {
+	trimmed := strings.TrimSpace(query)
+	if len(trimmed) > 512 {
+		return trimmed[:512] + "..."
+	}
+	return trimmed
 }

@@ -34,8 +34,17 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Query.DefaultLimit == 0 || cfg.Query.MaxUnbounded == 0 {
 		t.Fatalf("expected query defaults")
 	}
+	if cfg.Query.MaxScanBytes == 0 || cfg.Query.MaxScanSegments == 0 || cfg.Query.MaxRows == 0 || cfg.Query.TimeoutSeconds == 0 {
+		t.Fatalf("expected query guardrail defaults")
+	}
 	if cfg.Metadata.Snapshot.Key == "" {
 		t.Fatalf("expected snapshot key default")
+	}
+	if cfg.DiscoveryCache.TTLSeconds == 0 || cfg.DiscoveryCache.MaxEntries == 0 {
+		t.Fatalf("expected discovery cache defaults")
+	}
+	if cfg.Proxy.Listen == "" || cfg.Proxy.MaxConnections == 0 {
+		t.Fatalf("expected proxy defaults")
 	}
 }
 
@@ -45,6 +54,17 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("KAFSQL_SERVER_LISTEN", ":5555")
 	t.Setenv("KAFSQL_QUERY_DEFAULT_LIMIT", "123")
 	t.Setenv("KAFSQL_METADATA_SNAPSHOT_KEY", "/custom/snapshot")
+	t.Setenv("KAFSQL_DISCOVERY_CACHE_TTL_SECONDS", "25")
+	t.Setenv("KAFSQL_DISCOVERY_CACHE_MAX_ENTRIES", "500")
+	t.Setenv("KAFSQL_QUERY_MAX_SCAN_BYTES", "2048")
+	t.Setenv("KAFSQL_QUERY_MAX_SCAN_SEGMENTS", "12")
+	t.Setenv("KAFSQL_QUERY_MAX_ROWS", "345")
+	t.Setenv("KAFSQL_QUERY_TIMEOUT_SECONDS", "17")
+	t.Setenv("KAFSQL_PROXY_LISTEN", ":6432")
+	t.Setenv("KAFSQL_PROXY_UPSTREAMS", "kafsql-0:5432,kafsql-1:5432")
+	t.Setenv("KAFSQL_PROXY_MAX_CONNECTIONS", "55")
+	t.Setenv("KAFSQL_PROXY_ACL_ALLOW", "orders,shipments-*")
+	t.Setenv("KAFSQL_PROXY_ACL_DENY", "payments")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -58,6 +78,21 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Metadata.Snapshot.Key != "/custom/snapshot" {
 		t.Fatalf("expected snapshot key override, got %q", cfg.Metadata.Snapshot.Key)
+	}
+	if cfg.DiscoveryCache.TTLSeconds != 25 || cfg.DiscoveryCache.MaxEntries != 500 {
+		t.Fatalf("expected discovery cache overrides, got %+v", cfg.DiscoveryCache)
+	}
+	if cfg.Query.MaxScanBytes != 2048 || cfg.Query.MaxScanSegments != 12 || cfg.Query.MaxRows != 345 || cfg.Query.TimeoutSeconds != 17 {
+		t.Fatalf("expected query guardrail overrides, got %+v", cfg.Query)
+	}
+	if cfg.Proxy.Listen != ":6432" || cfg.Proxy.MaxConnections != 55 {
+		t.Fatalf("expected proxy overrides, got %+v", cfg.Proxy)
+	}
+	if len(cfg.Proxy.Upstreams) != 2 || cfg.Proxy.Upstreams[0] != "kafsql-0:5432" {
+		t.Fatalf("expected proxy upstream overrides, got %+v", cfg.Proxy.Upstreams)
+	}
+	if len(cfg.Proxy.ACL.Allow) != 2 || cfg.Proxy.ACL.Allow[0] != "orders" || cfg.Proxy.ACL.Deny[0] != "payments" {
+		t.Fatalf("expected proxy ACL overrides, got %+v", cfg.Proxy.ACL)
 	}
 }
 

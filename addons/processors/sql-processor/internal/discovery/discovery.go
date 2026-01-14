@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -35,11 +36,17 @@ import (
 const segmentFooterMagic = "END!"
 
 type SegmentRef struct {
-	Topic      string
-	Partition  int32
-	BaseOffset int64
-	SegmentKey string
-	IndexKey   string
+	Topic        string
+	Partition    int32
+	BaseOffset   int64
+	SegmentKey   string
+	IndexKey     string
+	SizeBytes    int64
+	LastModified time.Time
+	MinOffset    *int64
+	MaxOffset    *int64
+	MinTimestamp *int64
+	MaxTimestamp *int64
 }
 
 type Lister interface {
@@ -72,11 +79,15 @@ func New(cfg config.Config) (Lister, error) {
 		}
 	})
 
-	return &s3Lister{
+	base := &s3Lister{
 		client: client,
 		bucket: cfg.S3.Bucket,
 		prefix: normalizePrefix(cfg.S3.Namespace),
-	}, nil
+	}
+	if cfg.DiscoveryCache.TTLSeconds <= 0 {
+		return base, nil
+	}
+	return newCachedLister(base, time.Duration(cfg.DiscoveryCache.TTLSeconds)*time.Second, cfg.DiscoveryCache.MaxEntries), nil
 }
 
 type s3Lister struct {
@@ -115,6 +126,8 @@ func (l *s3Lister) ListCompleted(ctx context.Context) ([]SegmentRef, error) {
 			}
 			if kind == "kfs" {
 				entry.kfsKey = key
+				entry.kfsSize = aws.ToInt64(obj.Size)
+				entry.kfsModified = aws.ToTime(obj.LastModified)
 			} else {
 				entry.indexKey = key
 			}
@@ -131,11 +144,14 @@ func (l *s3Lister) ListCompleted(ctx context.Context) ([]SegmentRef, error) {
 			continue
 		}
 		segments = append(segments, SegmentRef{
-			Topic:      key.topic,
-			Partition:  key.partition,
-			BaseOffset: key.baseOffset,
-			SegmentKey: entry.kfsKey,
-			IndexKey:   entry.indexKey,
+			Topic:        key.topic,
+			Partition:    key.partition,
+			BaseOffset:   key.baseOffset,
+			SegmentKey:   entry.kfsKey,
+			IndexKey:     entry.indexKey,
+			SizeBytes:    entry.kfsSize,
+			LastModified: entry.kfsModified,
+			MinOffset:    int64Ptr(key.baseOffset),
 		})
 	}
 
@@ -148,6 +164,17 @@ func (l *s3Lister) ListCompleted(ctx context.Context) ([]SegmentRef, error) {
 		}
 		return segments[i].BaseOffset < segments[j].BaseOffset
 	})
+
+	for i := range segments {
+		next := findNextSegment(segments, i)
+		if next == nil {
+			continue
+		}
+		if next.BaseOffset > 0 {
+			max := next.BaseOffset - 1
+			segments[i].MaxOffset = &max
+		}
+	}
 
 	return segments, nil
 }
@@ -187,8 +214,94 @@ type segmentKey struct {
 }
 
 type segmentEntry struct {
-	kfsKey   string
-	indexKey string
+	kfsKey      string
+	indexKey    string
+	kfsSize     int64
+	kfsModified time.Time
+}
+
+type cachedLister struct {
+	inner      Lister
+	ttl        time.Duration
+	maxEntries int
+	mu         sync.Mutex
+	expiresAt  time.Time
+	segments   []SegmentRef
+}
+
+func newCachedLister(inner Lister, ttl time.Duration, maxEntries int) *cachedLister {
+	return &cachedLister{
+		inner:      inner,
+		ttl:        ttl,
+		maxEntries: maxEntries,
+	}
+}
+
+func (c *cachedLister) ListCompleted(ctx context.Context) ([]SegmentRef, error) {
+	now := time.Now()
+	c.mu.Lock()
+	if len(c.segments) > 0 && now.Before(c.expiresAt) {
+		metrics.DiscoveryCacheHits.Inc()
+		cached := cloneSegments(c.segments)
+		c.mu.Unlock()
+		return cached, nil
+	}
+	c.mu.Unlock()
+
+	metrics.DiscoveryCacheMisses.Inc()
+	segments, err := c.inner.ListCompleted(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.maxEntries > 0 && len(segments) > c.maxEntries {
+		return segments, nil
+	}
+
+	c.mu.Lock()
+	c.segments = cloneSegments(segments)
+	c.expiresAt = now.Add(c.ttl)
+	c.mu.Unlock()
+	return segments, nil
+}
+
+func cloneSegments(segments []SegmentRef) []SegmentRef {
+	out := make([]SegmentRef, len(segments))
+	for i, seg := range segments {
+		out[i] = seg
+		if seg.MinOffset != nil {
+			min := *seg.MinOffset
+			out[i].MinOffset = &min
+		}
+		if seg.MaxOffset != nil {
+			max := *seg.MaxOffset
+			out[i].MaxOffset = &max
+		}
+		if seg.MinTimestamp != nil {
+			min := *seg.MinTimestamp
+			out[i].MinTimestamp = &min
+		}
+		if seg.MaxTimestamp != nil {
+			max := *seg.MaxTimestamp
+			out[i].MaxTimestamp = &max
+		}
+	}
+	return out
+}
+
+func findNextSegment(segments []SegmentRef, index int) *SegmentRef {
+	current := segments[index]
+	for i := index + 1; i < len(segments); i++ {
+		if segments[i].Topic != current.Topic || segments[i].Partition != current.Partition {
+			return nil
+		}
+		return &segments[i]
+	}
+	return nil
+}
+
+func int64Ptr(value int64) *int64 {
+	return &value
 }
 
 func parseSegmentKey(prefix, key string) (segmentKey, string, bool) {

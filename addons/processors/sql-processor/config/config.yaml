@@ -29,12 +29,29 @@ metadata:
     ttl_seconds: 60
   topics: []
 
+discovery_cache:
+  ttl_seconds: 60
+  max_entries: 10000
+
 server:
   listen: ":5432"
   max_connections: 100
   metrics_listen: ":9090"
 
+proxy:
+  listen: ":5432"
+  upstreams:
+    - kafsql.kafka.svc.cluster.local:5432
+  max_connections: 200
+  acl:
+    allow: []
+    deny: []
+
 query:
   default_limit: 1000
   require_time_bound: true
   max_unbounded_scan: 1000
+  max_scan_bytes: 10737418240
+  max_scan_segments: 10000
+  max_rows: 100000
+  timeout_seconds: 30

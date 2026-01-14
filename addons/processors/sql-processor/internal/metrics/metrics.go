@@ -141,6 +141,20 @@ var (
 		},
 		[]string{"topic"},
 	)
+	DiscoveryCacheHits = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "discovery_cache_hits_total",
+			Help:      "Total discovery cache hits.",
+		},
+	)
+	DiscoveryCacheMisses = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "discovery_cache_misses_total",
+			Help:      "Total discovery cache misses.",
+		},
+	)
 )
 
 func init() {
@@ -161,5 +175,7 @@ func init() {
 		DecodeErrors,
 		InvalidJSON,
 		SchemaMiss,
+		DiscoveryCacheHits,
+		DiscoveryCacheMisses,
 	)
 }

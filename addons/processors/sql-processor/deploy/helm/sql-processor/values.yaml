@@ -34,6 +34,16 @@ envFromSecret: ""
 
 resources: {}
 
+proxy:
+  enabled: false
+  replicaCount: 2
+  service:
+    type: LoadBalancer
+    port: 5432
+  env: []
+  envFromSecret: ""
+  resources: {}
+
 config:
   existingConfigMap: ""
   path: /config/config.yaml

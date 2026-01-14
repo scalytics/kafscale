@@ -121,6 +121,42 @@ func TestParseJSONValue(t *testing.T) {
 	}
 }
 
+func TestParseJSONQuery(t *testing.T) {
+	q, err := Parse("SELECT json_query(_value, '$.meta') FROM orders;")
+	if err != nil {
+		t.Fatalf("expected select, got error: %v", err)
+	}
+	if len(q.Select) != 1 || q.Select[0].Kind != SelectColumnJSONQuery {
+		t.Fatalf("unexpected select columns: %+v", q.Select)
+	}
+	if q.Select[0].Alias != "json_query" {
+		t.Fatalf("unexpected alias: %+v", q.Select[0])
+	}
+}
+
+func TestParseJSONExists(t *testing.T) {
+	q, err := Parse("SELECT json_exists(_value, '$.id') FROM orders;")
+	if err != nil {
+		t.Fatalf("expected select, got error: %v", err)
+	}
+	if len(q.Select) != 1 || q.Select[0].Kind != SelectColumnJSONExists {
+		t.Fatalf("unexpected select columns: %+v", q.Select)
+	}
+	if q.Select[0].Alias != "json_exists" {
+		t.Fatalf("unexpected alias: %+v", q.Select[0])
+	}
+}
+
+func TestParseExplain(t *testing.T) {
+	q, err := Parse("EXPLAIN SELECT * FROM orders LAST 1h;")
+	if err != nil {
+		t.Fatalf("expected explain, got error: %v", err)
+	}
+	if q.Type != QueryExplain || q.Explain == nil || q.Explain.Type != QuerySelect {
+		t.Fatalf("unexpected explain query: %+v", q)
+	}
+}
+
 func TestParseInvalid(t *testing.T) {
 	if _, err := Parse("INSERT INTO orders VALUES (1);"); err == nil {
 		t.Fatalf("expected error for unsupported statement")

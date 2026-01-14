@@ -26,10 +26,12 @@ import (
 
 // Config defines the processor configuration schema.
 type Config struct {
-	S3       S3Config     `yaml:"s3"`
-	Server   ServerConfig `yaml:"server"`
-	Metadata MetaConfig   `yaml:"metadata"`
-	Query    QueryConfig  `yaml:"query"`
+	S3             S3Config             `yaml:"s3"`
+	Server         ServerConfig         `yaml:"server"`
+	Metadata       MetaConfig           `yaml:"metadata"`
+	Query          QueryConfig          `yaml:"query"`
+	DiscoveryCache DiscoveryCacheConfig `yaml:"discovery_cache"`
+	Proxy          ProxyConfig          `yaml:"proxy"`
 
 	Mappings []Mapping    `yaml:"mappings"`
 	Offsets  OffsetConfig `yaml:"offsets"`
@@ -79,9 +81,30 @@ type SnapshotConfig struct {
 }
 
 type QueryConfig struct {
-	DefaultLimit     int  `yaml:"default_limit"`
-	RequireTimeBound bool `yaml:"require_time_bound"`
-	MaxUnbounded     int  `yaml:"max_unbounded_scan"`
+	DefaultLimit     int   `yaml:"default_limit"`
+	RequireTimeBound bool  `yaml:"require_time_bound"`
+	MaxUnbounded     int   `yaml:"max_unbounded_scan"`
+	MaxScanBytes     int64 `yaml:"max_scan_bytes"`
+	MaxScanSegments  int   `yaml:"max_scan_segments"`
+	MaxRows          int   `yaml:"max_rows"`
+	TimeoutSeconds   int   `yaml:"timeout_seconds"`
+}
+
+type DiscoveryCacheConfig struct {
+	TTLSeconds int `yaml:"ttl_seconds"`
+	MaxEntries int `yaml:"max_entries"`
+}
+
+type ProxyConfig struct {
+	Listen         string         `yaml:"listen"`
+	Upstreams      []string       `yaml:"upstreams"`
+	MaxConnections int            `yaml:"max_connections"`
+	ACL            ProxyACLConfig `yaml:"acl"`
+}
+
+type ProxyACLConfig struct {
+	Allow []string `yaml:"allow"`
+	Deny  []string `yaml:"deny"`
 }
 
 type TopicConfig struct {
@@ -146,8 +169,32 @@ func applyDefaults(cfg *Config) {
 	if cfg.Query.MaxUnbounded == 0 {
 		cfg.Query.MaxUnbounded = 1000
 	}
+	if cfg.Query.MaxScanBytes == 0 {
+		cfg.Query.MaxScanBytes = 10 * 1024 * 1024 * 1024
+	}
+	if cfg.Query.MaxScanSegments == 0 {
+		cfg.Query.MaxScanSegments = 10000
+	}
+	if cfg.Query.MaxRows == 0 {
+		cfg.Query.MaxRows = 100000
+	}
+	if cfg.Query.TimeoutSeconds == 0 {
+		cfg.Query.TimeoutSeconds = 30
+	}
 	if cfg.Metadata.Snapshot.Key == "" {
 		cfg.Metadata.Snapshot.Key = "/kafscale/metadata/snapshot"
+	}
+	if cfg.DiscoveryCache.TTLSeconds == 0 {
+		cfg.DiscoveryCache.TTLSeconds = 60
+	}
+	if cfg.DiscoveryCache.MaxEntries == 0 {
+		cfg.DiscoveryCache.MaxEntries = 10000
+	}
+	if cfg.Proxy.Listen == "" {
+		cfg.Proxy.Listen = ":5432"
+	}
+	if cfg.Proxy.MaxConnections == 0 {
+		cfg.Proxy.MaxConnections = 200
 	}
 }
 
@@ -172,6 +219,19 @@ func applyEnvOverrides(cfg *Config) {
 	setInt(&cfg.Query.DefaultLimit, "KAFSQL_QUERY_DEFAULT_LIMIT")
 	setBool(&cfg.Query.RequireTimeBound, "KAFSQL_QUERY_REQUIRE_TIME_BOUND")
 	setInt(&cfg.Query.MaxUnbounded, "KAFSQL_QUERY_MAX_UNBOUNDED")
+	setInt64(&cfg.Query.MaxScanBytes, "KAFSQL_QUERY_MAX_SCAN_BYTES")
+	setInt(&cfg.Query.MaxScanSegments, "KAFSQL_QUERY_MAX_SCAN_SEGMENTS")
+	setInt(&cfg.Query.MaxRows, "KAFSQL_QUERY_MAX_ROWS")
+	setInt(&cfg.Query.TimeoutSeconds, "KAFSQL_QUERY_TIMEOUT_SECONDS")
+
+	setInt(&cfg.DiscoveryCache.TTLSeconds, "KAFSQL_DISCOVERY_CACHE_TTL_SECONDS")
+	setInt(&cfg.DiscoveryCache.MaxEntries, "KAFSQL_DISCOVERY_CACHE_MAX_ENTRIES")
+
+	setString(&cfg.Proxy.Listen, "KAFSQL_PROXY_LISTEN")
+	setCSV(&cfg.Proxy.Upstreams, "KAFSQL_PROXY_UPSTREAMS")
+	setInt(&cfg.Proxy.MaxConnections, "KAFSQL_PROXY_MAX_CONNECTIONS")
+	setCSV(&cfg.Proxy.ACL.Allow, "KAFSQL_PROXY_ACL_ALLOW")
+	setCSV(&cfg.Proxy.ACL.Deny, "KAFSQL_PROXY_ACL_DENY")
 }
 
 func validateSchema(topics []TopicConfig) error {
@@ -206,6 +266,15 @@ func setString(target *string, envKey string) {
 func setInt(target *int, envKey string) {
 	if val, ok := os.LookupEnv(envKey); ok {
 		parsed, err := strconv.Atoi(val)
+		if err == nil {
+			*target = parsed
+		}
+	}
+}
+
+func setInt64(target *int64, envKey string) {
+	if val, ok := os.LookupEnv(envKey); ok {
+		parsed, err := strconv.ParseInt(val, 10, 64)
 		if err == nil {
 			*target = parsed
 		}

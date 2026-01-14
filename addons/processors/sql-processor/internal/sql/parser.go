@@ -43,6 +43,8 @@ func Parse(query string) (Query, error) {
 		return parseDescribe(fields)
 	case "select":
 		return parseSelect(trimmed, lower, fields)
+	case "explain":
+		return parseExplain(trimmed)
 	default:
 		return Query{Type: QueryUnknown}, fmt.Errorf("unsupported statement")
 	}
@@ -63,6 +65,26 @@ func parseDescribe(fields []string) (Query, error) {
 		return Query{Type: QueryUnknown}, fmt.Errorf("describe requires topic")
 	}
 	return Query{Type: QueryDescribe, Topic: fields[1]}, nil
+}
+
+func parseExplain(raw string) (Query, error) {
+	trimmed := strings.TrimSpace(raw)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "explain") {
+		return Query{Type: QueryUnknown}, fmt.Errorf("invalid explain")
+	}
+	inner := strings.TrimSpace(trimmed[len("explain"):])
+	if inner == "" {
+		return Query{Type: QueryUnknown}, fmt.Errorf("explain requires query")
+	}
+	parsed, err := Parse(inner)
+	if err != nil {
+		return Query{Type: QueryUnknown}, err
+	}
+	if parsed.Type != QuerySelect {
+		return Query{Type: QueryUnknown}, fmt.Errorf("explain supports select only")
+	}
+	return Query{Type: QueryExplain, Explain: &parsed}, nil
 }
 
 func parseSelect(raw string, lower string, fields []string) (Query, error) {
@@ -458,6 +480,24 @@ func parseSelectColumn(raw string) (SelectColumn, error) {
 		}
 		return out, nil
 	}
+	if jsonQuery := parseJSONQuery(expr); jsonQuery != nil {
+		out.Kind = SelectColumnJSONQuery
+		out.JSONPath = jsonQuery.Path
+		out.Source = jsonQuery.Source
+		if out.Alias == "" {
+			out.Alias = "json_query"
+		}
+		return out, nil
+	}
+	if jsonExists := parseJSONExists(expr); jsonExists != nil {
+		out.Kind = SelectColumnJSONExists
+		out.JSONPath = jsonExists.Path
+		out.Source = jsonExists.Source
+		if out.Alias == "" {
+			out.Alias = "json_exists"
+		}
+		return out, nil
+	}
 
 	source, column := parseColumnRef(exprLower)
 	out.Kind = SelectColumnField
@@ -511,7 +551,19 @@ type jsonValueSpec struct {
 }
 
 func parseJSONValue(expr string) *jsonValueSpec {
-	re := regexp.MustCompile(`(?i)^json_value\s*\(\s*([a-zA-Z0-9_\.]+)\s*,\s*'([^']+)'\s*\)$`)
+	return parseJSONFunc(expr, "json_value")
+}
+
+func parseJSONQuery(expr string) *jsonValueSpec {
+	return parseJSONFunc(expr, "json_query")
+}
+
+func parseJSONExists(expr string) *jsonValueSpec {
+	return parseJSONFunc(expr, "json_exists")
+}
+
+func parseJSONFunc(expr string, name string) *jsonValueSpec {
+	re := regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(name) + `\s*\(\s*([a-zA-Z0-9_\.]+)\s*,\s*'([^']+)'\s*\)$`)
 	match := re.FindStringSubmatch(strings.TrimSpace(expr))
 	if len(match) != 3 {
 		return nil

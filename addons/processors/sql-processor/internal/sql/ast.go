@@ -23,6 +23,7 @@ const (
 	QueryShowPartitions QueryType = "show_partitions"
 	QueryDescribe       QueryType = "describe"
 	QuerySelect         QueryType = "select"
+	QueryExplain        QueryType = "explain"
 )
 
 type Query struct {
@@ -51,16 +52,20 @@ type Query struct {
 	Last       string
 	Tail       string
 	ScanFull   bool
+
+	Explain *Query
 }
 
 type SelectColumnKind string
 
 const (
-	SelectColumnUnknown   SelectColumnKind = "unknown"
-	SelectColumnStar      SelectColumnKind = "star"
-	SelectColumnField     SelectColumnKind = "field"
-	SelectColumnJSONValue SelectColumnKind = "json_value"
-	SelectColumnAggregate SelectColumnKind = "aggregate"
+	SelectColumnUnknown    SelectColumnKind = "unknown"
+	SelectColumnStar       SelectColumnKind = "star"
+	SelectColumnField      SelectColumnKind = "field"
+	SelectColumnJSONValue  SelectColumnKind = "json_value"
+	SelectColumnJSONQuery  SelectColumnKind = "json_query"
+	SelectColumnJSONExists SelectColumnKind = "json_exists"
+	SelectColumnAggregate  SelectColumnKind = "aggregate"
 )
 
 type SelectColumn struct {
