@@ -1,7 +1,7 @@
 {
   "kafka": {
     "clientId": "js-agent-demo",
-    "brokers": ["127.0.0.1:9092"]
+    "brokers": ["127.0.0.1:39092"]
   },
   "topics": {
     "requests": "agent_requests",
