@@ -8,6 +8,8 @@ A demonstration of **queue-driven agent architecture** using Kafka topics for or
 - **Standard file-based configuration** (all settings in one place)
 - **Kafka topics as agent queues** for task distribution
 - **Stateless agent loop**: consume task → build prompt → call LLM → produce response
+- **Interactive Kanban Board Web UI** with drag-and-drop task management
+- **Real-time agent activity monitoring** via WebSockets
 - **Human panel interface** (CLI) for task submission and response monitoring
 
 ## 🏗️ Architecture
@@ -58,8 +60,13 @@ E50_JS-kafscale-demo/
 │   ├── kafka.js              # Shared Kafka client setup
 │   ├── agent.js              # Agent service (main worker)
 │   ├── llm.js                # LLM stub (replace with real provider)
+│   ├── web-server.js         # Web UI server with WebSocket bridge
 │   ├── panel.js              # Interactive task submission CLI
 │   └── types.js              # Message format definitions
+├── public/
+│   ├── index.html            # Kanban board UI
+│   ├── styles.css            # Modern dark theme styling
+│   └── app.js                # Frontend WebSocket client
 └── scripts/
     └── consume-response.js   # Response monitoring script
 ```
@@ -89,7 +96,25 @@ This creates three topics:
 - `agent.internal` - (Optional) Agent scratchpad/logs
 - `agent.responses` - Results from agent → human
 
-### 3. Run the Demo (3 Terminals)
+### 3. Run the Demo
+
+#### Option A: Web UI (Recommended) - 2 Terminals
+
+**Terminal 1 - Start Agent Service:**
+```bash
+make run-agent
+# or: node src/agent.js
+```
+
+**Terminal 2 - Start Web UI:**
+```bash
+make run-web
+# or: npm run web
+```
+
+Then open your browser to: **http://localhost:3000**
+
+#### Option B: CLI Mode - 3 Terminals
 
 **Terminal 1 - Start Agent Service:**
 ```bash
@@ -116,6 +141,7 @@ make run-panel
 | `make help` | Show all available commands |
 | `make install` | Install Node.js dependencies |
 | `make setup` | Create required Kafka topics |
+| `make run-web` | Start web UI with Kanban board (recommended) |
 | `make run-agent` | Start agent service (terminal 1) |
 | `make run-consumer` | Start response consumer (terminal 2) |
 | `make run-panel` | Run interactive task panel (terminal 3) |
@@ -125,6 +151,30 @@ make run-panel
 | `make peek-responses` | View messages in responses topic |
 | `make clean` | Delete all topics and reset |
 | `make arch` | Display architecture diagram |
+
+## 🎨 Web UI Features
+
+The Kanban board provides an intuitive interface for managing agent tasks:
+
+### Task Board (Left Panel)
+- **📥 Backlog Lane**: Newly created tasks waiting to be processed
+- **⚙️ Agent Processing Lane**: Drag tasks here to send them to the agent
+- **✅ Completed Lane**: Finished tasks with results
+
+### Agent Monitor (Right Panel)
+- **Current Task**: Shows what the agent is currently working on
+- **Prompt Built**: Displays the actual prompt sent to the LLM
+- **LLM Processing**: Real-time status indicator
+- **Task History**: Last 10 completed tasks
+
+### Workflow
+1. Click **+ New Task** button
+2. Fill in task details (task, spec, context)
+3. Task appears in **Backlog** lane
+4. Drag task to **Agent Processing** lane
+5. Task is sent to Kafka `agent_requests` topic
+6. Agent picks up task and processes it
+7. Response appears and card moves to **Completed** lane automatically
 
 ## ⚙️ Configuration
 
@@ -149,9 +199,19 @@ All configuration is in `config/agent-config.json`:
 }
 ```
 
-**To use with KafScale:** No changes needed! KafScale is Kafka-compatible.
+**To use with KafScale:** This demo is optimized for KafScale! See [KAFSCALE-COMPATIBILITY.md](KAFSCALE-COMPATIBILITY.md) for details on how we configured KafkaJS to work with KafScale's single-broker architecture.
 
 **To use with remote Kafka:** Change `brokers` to your Kafka URL.
+
+### KafScale-Specific Configuration
+
+This demo includes KafScale-compatible settings in [src/kafka.js](src/kafka.js):
+- Frequent metadata refresh (`metadataMaxAge: 30000`)
+- Conservative retry logic (10 retries with backoff)
+- Extended timeouts for broker routing
+- Single-partition consumer concurrency
+
+**Why?** KafScale presents "one broker IP, infinite scaling behind it." KafkaJS needs configuration to treat it as a single logical broker. See the [compatibility guide](KAFSCALE-COMPATIBILITY.md) for the full technical explanation.
 
 ## 📨 Message Format
 
@@ -173,6 +233,45 @@ All configuration is in `config/agent-config.json`:
   "result": "LLM-generated response here...",
   "finishedAt": "2026-01-08T12:00:05.000Z"
 }
+```
+
+## 🧪 Testing
+
+### Quick Test
+Send a test message manually:
+```bash
+make test-flow
+```
+
+### End-to-End Automated Test
+Runs a complete workflow test:
+```bash
+# Terminal 1: Start agent
+make run-agent
+
+# Terminal 2: Run test
+make test-e2e
+```
+
+The E2E test:
+- ✅ Connects producer and consumer
+- ✅ Sends test task to agent
+- ✅ Waits for agent response
+- ✅ Validates response format
+- ✅ Measures end-to-end latency
+- ✅ Exits with proper status code
+
+**Expected output:**
+```
+✅ E2E TEST PASSED
+
+Summary:
+  ✓ Producer connected
+  ✓ Consumer subscribed
+  ✓ Task sent to agent
+  ✓ Agent processed task
+  ✓ Response received
+  ✓ Response format valid
 ```
 
 ## 🔧 Replacing the LLM Stub

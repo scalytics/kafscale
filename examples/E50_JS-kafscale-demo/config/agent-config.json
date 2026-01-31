@@ -1,12 +1,12 @@
 {
   "kafka": {
     "clientId": "js-agent-demo",
-    "brokers": ["localhost:9092"]
+    "brokers": ["127.0.0.1:9092"]
   },
   "topics": {
-    "requests": "agent.requests",
-    "internal": "agent.internal",
-    "responses": "agent.responses"
+    "requests": "agent_requests",
+    "internal": "agent_internal",
+    "responses": "agent_responses"
   },
   "agent": {
     "systemPrompt": "You are a helpful technical writing agent.",
