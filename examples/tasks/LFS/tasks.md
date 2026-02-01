@@ -299,15 +299,17 @@ lfsProxy:
 
 ### 2.1 HTTP Streaming Endpoint
 
+**STATUS: ✅ COMPLETE** - Implemented in `cmd/lfs-proxy/http.go`
+
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| P2-001 | Add HTTP server to lfs-proxy | P0 | [ ] | Separate port (:8080) |
-| P2-002 | Implement `POST /lfs/v1/produce` | P0 | [ ] | Streaming body |
-| P2-003 | Parse `X-Kafka-Topic`, `X-Kafka-Key` headers | P0 | [ ] | Route to correct topic |
-| P2-004 | Connect to S3 streaming upload | P0 | [ ] | Reuse multipart logic |
-| P2-005 | Return JSON response with offset | P0 | [ ] | `{topic, partition, offset, s3_key}` |
-| P2-006 | Add HTTP metrics | P1 | [ ] | Request count, latency |
-| P2-007 | Implement incremental SHA256 hashing | P0 | [ ] | Hash during stream, not after |
+| P2-001 | Add HTTP server to lfs-proxy | P0 | [x] | `startHTTPServer()` in http.go |
+| P2-002 | Implement `POST /lfs/produce` | P0 | [x] | `handleHTTPProduce()` with streaming |
+| P2-003 | Parse `X-Kafka-Topic`, `X-Kafka-Key` headers | P0 | [x] | + X-Kafka-Partition, X-LFS-Checksum |
+| P2-004 | Connect to S3 streaming upload | P0 | [x] | `UploadStream()` in s3.go |
+| P2-005 | Return JSON response with envelope | P0 | [x] | Returns full LFS envelope |
+| P2-006 | Add HTTP metrics | P1 | [x] | Reuses existing metrics |
+| P2-007 | Implement incremental SHA256 hashing | P0 | [x] | s3.go:183 - chunk-by-chunk hashing |
 
 ### 2.2 Streaming Producer SDK (Go)
 
@@ -558,24 +560,24 @@ mappings:
 
 ## Next Sprint Priorities
 
-**Phase 1 COMPLETE - Now starting Phase 2: Streaming Mode**
+**Phase 1 & Phase 2.1 COMPLETE - Now starting Phase 2.2: Streaming Producer SDK**
 
 | # | Task | ID | Output | Status |
 |---|------|----|--------|--------|
-| 1 | Add HTTP server to lfs-proxy | P2-001 | `cmd/lfs-proxy/http.go` | Next |
-| 2 | Implement POST /lfs/v1/produce | P2-002 | `cmd/lfs-proxy/http.go` | |
-| 3 | Parse X-Kafka-Topic, X-Kafka-Key headers | P2-003 | `cmd/lfs-proxy/http.go` | |
-| 4 | Connect to S3 streaming upload | P2-004 | `cmd/lfs-proxy/http.go` | |
-| 5 | Return JSON response with offset | P2-005 | `cmd/lfs-proxy/http.go` | |
-| 6 | Implement incremental SHA256 hashing | P2-007 | `cmd/lfs-proxy/http.go` | |
+| 1 | Create StreamProducer type | S2-001 | `pkg/lfs/producer.go` | Next |
+| 2 | Implement Produce(topic, key, io.Reader) | S2-002 | `pkg/lfs/producer.go` | |
+| 3 | Add progress callback | S2-003 | `pkg/lfs/producer.go` | |
+| 4 | Add retry logic | S2-004 | `pkg/lfs/producer.go` | |
+| 5 | Write documentation | S2-005 | `pkg/lfs/producer.go` | |
 
-**Phase 1 Completed (2026-02-01):**
+**Completed (2026-02-01):**
 - [x] All P1-* tasks (Proxy Core)
 - [x] All C1-* tasks (Consumer SDK)
 - [x] All D1-* tasks (Deployment)
 - [x] All T1-* tasks except T1-012 (Testing)
 - [x] All O1-* tasks (Observability)
 - [x] All DEMO-* tasks (Demo)
+- [x] All P2-* tasks (HTTP Streaming Endpoint)
 
 ---
 
@@ -636,10 +638,11 @@ mappings:
 - [x] Docker image build configured in CI
 - [x] Helm chart updated with lfsProxy section
 
-### M4: Streaming Release
+### M4: Streaming Release - IN PROGRESS
 
-- [ ] All Phase 2 tasks complete
-- [ ] HTTP streaming API working
+- [x] HTTP streaming API working (P2-001 to P2-007)
+- [ ] Streaming Producer SDK (S2-001 to S2-005)
+- [ ] Java Consumer Wrapper (J2-001 to J2-007)
 - [ ] Performance validated
 
 ### M5: LFS-Aware Processors
