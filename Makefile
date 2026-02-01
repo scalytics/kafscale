@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo platform-demo help clean-kind-all
+.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo medical-lfs-demo video-lfs-demo industrial-lfs-demo platform-demo help clean-kind-all
 
 REGISTRY ?= ghcr.io/kafscale
 STAMP_DIR ?= .build
@@ -569,6 +569,48 @@ lfs-demo: demo-platform-bootstrap ## Run the LFS proxy demo on kind.
 	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
 	bash scripts/lfs-demo.sh
+
+medical-lfs-demo: KAFSCALE_DEMO_PROXY=0
+medical-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
+medical-lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
+medical-lfs-demo: demo-platform-bootstrap ## Run the Medical LFS demo (E60) - healthcare imaging with content explosion.
+	$(MAKE) docker-build-lfs-proxy
+	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
+	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
+	LFS_PROXY_IMAGE=$(LFS_PROXY_IMAGE) \
+	E2E_CLIENT_IMAGE=$(E2E_CLIENT_IMAGE) \
+	MINIO_BUCKET=$(MINIO_BUCKET) \
+	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
+	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
+	bash scripts/medical-lfs-demo.sh
+
+video-lfs-demo: KAFSCALE_DEMO_PROXY=0
+video-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
+video-lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
+video-lfs-demo: demo-platform-bootstrap ## Run the Video LFS demo (E61) - media streaming with content explosion.
+	$(MAKE) docker-build-lfs-proxy
+	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
+	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
+	LFS_PROXY_IMAGE=$(LFS_PROXY_IMAGE) \
+	E2E_CLIENT_IMAGE=$(E2E_CLIENT_IMAGE) \
+	MINIO_BUCKET=$(MINIO_BUCKET) \
+	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
+	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
+	bash scripts/video-lfs-demo.sh
+
+industrial-lfs-demo: KAFSCALE_DEMO_PROXY=0
+industrial-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
+industrial-lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
+industrial-lfs-demo: demo-platform-bootstrap ## Run the Industrial LFS demo (E62) - mixed telemetry + images.
+	$(MAKE) docker-build-lfs-proxy
+	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
+	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
+	LFS_PROXY_IMAGE=$(LFS_PROXY_IMAGE) \
+	E2E_CLIENT_IMAGE=$(E2E_CLIENT_IMAGE) \
+	MINIO_BUCKET=$(MINIO_BUCKET) \
+	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
+	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
+	bash scripts/industrial-lfs-demo.sh
 
 platform-demo: demo-platform ## Alias for demo-platform.
 
