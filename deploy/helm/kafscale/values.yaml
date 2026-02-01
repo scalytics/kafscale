@@ -138,6 +138,64 @@ proxy:
     annotations: {}
     loadBalancerSourceRanges: []
 
+lfsProxy:
+  enabled: false
+  replicaCount: 2
+  image:
+    repository: ghcr.io/kafscale/kafscale-lfs-proxy
+    tag: ""
+    useLatest: false
+    pullPolicy: IfNotPresent
+  health:
+    enabled: true
+    port: 9094
+  metrics:
+    enabled: true
+    port: 9095
+    service:
+      annotations: {}
+    serviceMonitor:
+      enabled: false
+      interval: 30s
+      scrapeTimeout: 10s
+      labels: {}
+    prometheusRule:
+      enabled: false
+      labels: {}
+  http:
+    enabled: true
+    port: 8080
+    apiKey: ""
+  backendCacheTTLSeconds: 60
+  advertisedHost: ""
+  advertisedPort: 9092
+  etcdEndpoints: []
+  etcd:
+    username: ""
+    password: ""
+  backends: []
+  s3:
+    bucket: ""
+    region: ""
+    endpoint: ""
+    accessKey: ""
+    secretKey: ""
+    sessionToken: ""
+    forcePathStyle: false
+    ensureBucket: false
+    maxBlobSize: 5368709120
+    chunkSize: 5242880
+  podAnnotations: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  service:
+    type: LoadBalancer
+    port: 9092
+    annotations: {}
+    loadBalancerSourceRanges: []
+
 mcp:
   enabled: false
   namespace:

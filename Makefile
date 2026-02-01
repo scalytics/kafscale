@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo platform-demo help clean-kind-all
+.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo platform-demo help clean-kind-all
 
 REGISTRY ?= ghcr.io/kafscale
 STAMP_DIR ?= .build
@@ -21,6 +21,7 @@ BROKER_IMAGE ?= $(REGISTRY)/kafscale-broker:dev
 OPERATOR_IMAGE ?= $(REGISTRY)/kafscale-operator:dev
 CONSOLE_IMAGE ?= $(REGISTRY)/kafscale-console:dev
 PROXY_IMAGE ?= $(REGISTRY)/kafscale-proxy:dev
+LFS_PROXY_IMAGE ?= $(REGISTRY)/kafscale-lfs-proxy:dev
 SQL_PROCESSOR_IMAGE ?= $(REGISTRY)/kafscale-sql-processor:dev
 MCP_IMAGE ?= $(REGISTRY)/kafscale-mcp:dev
 E2E_CLIENT_IMAGE ?= $(REGISTRY)/kafscale-e2e-client:dev
@@ -46,6 +47,11 @@ KAFSQL_DEMO_TOPIC ?= kafsql-demo-topic
 KAFSQL_DEMO_RECORDS ?= 200
 KAFSQL_DEMO_TIMEOUT_SEC ?= 120
 KAFSQL_PROCESSOR_RELEASE ?= kafsql-processor-dev
+LFS_DEMO_NAMESPACE ?= $(KAFSCALE_DEMO_NAMESPACE)
+LFS_DEMO_TOPIC ?= lfs-demo-topic
+LFS_DEMO_BLOB_SIZE ?= 524288
+LFS_DEMO_BLOB_COUNT ?= 5
+LFS_DEMO_TIMEOUT_SEC ?= 120
 MINIO_CONTAINER ?= kafscale-minio
 MINIO_IMAGE ?= quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
 MINIO_PORT ?= 9000
@@ -130,6 +136,13 @@ $(STAMP_DIR)/proxy.image: $(PROXY_SRCS)
 	@mkdir -p $(STAMP_DIR)
 	$(DOCKER_BUILD_CMD) $(DOCKER_BUILD_ARGS) -t $(PROXY_IMAGE) -f deploy/docker/proxy.Dockerfile .
 	@touch $(STAMP_DIR)/proxy.image
+
+LFS_PROXY_SRCS := $(shell find cmd/lfs-proxy pkg go.mod go.sum)
+docker-build-lfs-proxy: $(STAMP_DIR)/lfs-proxy.image ## Build LFS proxy container image
+$(STAMP_DIR)/lfs-proxy.image: $(LFS_PROXY_SRCS)
+	@mkdir -p $(STAMP_DIR)
+	$(DOCKER_BUILD_CMD) $(DOCKER_BUILD_ARGS) -t $(LFS_PROXY_IMAGE) -f deploy/docker/lfs-proxy.Dockerfile .
+	@touch $(STAMP_DIR)/lfs-proxy.image
 
 MCP_SRCS := $(shell find cmd/mcp internal/mcpserver go.mod go.sum)
 docker-build-mcp: $(STAMP_DIR)/mcp.image ## Build MCP container image
@@ -535,6 +548,27 @@ kafsql-demo: demo-platform-bootstrap ## Run the KAFSQL processor e2e demo on kin
 	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
 	bash scripts/kafsql-demo.sh
+
+lfs-demo: KAFSCALE_DEMO_PROXY=0
+lfs-demo: KAFSCALE_DEMO_CONSOLE=0
+lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
+lfs-demo: demo-platform-bootstrap ## Run the LFS proxy demo on kind.
+	$(MAKE) docker-build-lfs-proxy
+	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
+	KAFSCALE_DEMO_NAMESPACE=$(KAFSCALE_DEMO_NAMESPACE) \
+	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
+	LFS_DEMO_NAMESPACE=$(LFS_DEMO_NAMESPACE) \
+	LFS_DEMO_TOPIC=$(LFS_DEMO_TOPIC) \
+	LFS_DEMO_BLOB_SIZE=$(LFS_DEMO_BLOB_SIZE) \
+	LFS_DEMO_BLOB_COUNT=$(LFS_DEMO_BLOB_COUNT) \
+	LFS_DEMO_TIMEOUT_SEC=$(LFS_DEMO_TIMEOUT_SEC) \
+	LFS_PROXY_IMAGE=$(LFS_PROXY_IMAGE) \
+	E2E_CLIENT_IMAGE=$(E2E_CLIENT_IMAGE) \
+	MINIO_BUCKET=$(MINIO_BUCKET) \
+	MINIO_REGION=$(MINIO_REGION) \
+	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
+	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
+	bash scripts/lfs-demo.sh
 
 platform-demo: demo-platform ## Alias for demo-platform.
 
