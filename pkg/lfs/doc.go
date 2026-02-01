@@ -165,5 +165,68 @@ Use IsLfsEnvelope for fast detection without parsing:
 	    env, _ := lfs.DecodeEnvelope(value)
 	    fmt.Printf("Blob stored at: s3://%s/%s\n", env.Bucket, env.Key)
 	}
+
+# Producer Usage
+
+For producing large payloads via the LFS proxy HTTP endpoint:
+
+	// Create producer pointing to LFS proxy
+	producer := lfs.NewProducer("http://lfs-proxy:8080",
+	    lfs.WithContentType("video/mp4"),
+	    lfs.WithRetry(3, time.Second),
+	)
+
+	// Stream a file to the proxy
+	file, _ := os.Open("large-video.mp4")
+	defer file.Close()
+
+	result, err := producer.Produce(ctx, "video-uploads", "video-001", file)
+	if err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Printf("Uploaded %d bytes to s3://%s/%s\n",
+	    result.BytesSent, result.Envelope.Bucket, result.Envelope.Key)
+
+# Producer with Progress Tracking
+
+Monitor upload progress for large files:
+
+	producer := lfs.NewProducer("http://lfs-proxy:8080",
+	    lfs.WithProgress(func(bytesSent int64) error {
+	        fmt.Printf("Uploaded: %d bytes\n", bytesSent)
+	        return nil  // return error to cancel upload
+	    }),
+	)
+
+	result, err := producer.Produce(ctx, "media", "file.dat", reader)
+
+# Producer with Checksum Validation
+
+Validate server-computed checksum against a pre-computed value:
+
+	// Pre-compute checksum
+	hasher := sha256.New()
+	io.Copy(hasher, file)
+	expectedSHA := hex.EncodeToString(hasher.Sum(nil))
+	file.Seek(0, 0)
+
+	// Upload with checksum validation
+	result, err := producer.ProduceWithChecksum(ctx, "topic", "key", file, expectedSHA)
+	if err != nil {
+	    var checksumErr *lfs.ChecksumError
+	    if errors.As(err, &checksumErr) {
+	        log.Error("upload corrupted", "expected", checksumErr.Expected)
+	    }
+	}
+
+# Producer Retry Behavior
+
+The producer automatically retries on transient failures (5xx errors, 429 rate limits,
+connection errors). Non-retryable errors (4xx client errors, checksum mismatches)
+fail immediately.
+
+	producer := lfs.NewProducer("http://lfs-proxy:8080",
+	    lfs.WithRetry(5, 2*time.Second),  // 5 retries with exponential backoff
+	)
 */
 package lfs
