@@ -18,6 +18,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,22 @@ func (m *lfsMetrics) WritePrometheus(w io.Writer) {
 	fmt.Fprintf(w, "# HELP kafscale_lfs_proxy_orphan_objects_total LFS objects uploaded but not committed to Kafka\n")
 	fmt.Fprintf(w, "# TYPE kafscale_lfs_proxy_orphan_objects_total counter\n")
 	fmt.Fprintf(w, "kafscale_lfs_proxy_orphan_objects_total %d\n", atomic.LoadUint64(&m.orphans))
+
+	// Runtime metrics
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	fmt.Fprintf(w, "# HELP kafscale_lfs_proxy_goroutines Number of goroutines\n")
+	fmt.Fprintf(w, "# TYPE kafscale_lfs_proxy_goroutines gauge\n")
+	fmt.Fprintf(w, "kafscale_lfs_proxy_goroutines %d\n", runtime.NumGoroutine())
+	fmt.Fprintf(w, "# HELP kafscale_lfs_proxy_memory_alloc_bytes Bytes allocated and in use\n")
+	fmt.Fprintf(w, "# TYPE kafscale_lfs_proxy_memory_alloc_bytes gauge\n")
+	fmt.Fprintf(w, "kafscale_lfs_proxy_memory_alloc_bytes %d\n", memStats.Alloc)
+	fmt.Fprintf(w, "# HELP kafscale_lfs_proxy_memory_sys_bytes Bytes obtained from system\n")
+	fmt.Fprintf(w, "# TYPE kafscale_lfs_proxy_memory_sys_bytes gauge\n")
+	fmt.Fprintf(w, "kafscale_lfs_proxy_memory_sys_bytes %d\n", memStats.Sys)
+	fmt.Fprintf(w, "# HELP kafscale_lfs_proxy_gc_pause_total_ns Total GC pause time in nanoseconds\n")
+	fmt.Fprintf(w, "# TYPE kafscale_lfs_proxy_gc_pause_total_ns counter\n")
+	fmt.Fprintf(w, "kafscale_lfs_proxy_gc_pause_total_ns %d\n", memStats.PauseTotalNs)
 }
 
 func (m *lfsMetrics) snapshotTopics() []string {
