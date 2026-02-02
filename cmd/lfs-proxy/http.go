@@ -33,10 +33,11 @@ import (
 )
 
 const (
-	headerTopic     = "X-Kafka-Topic"
-	headerKey       = "X-Kafka-Key"
-	headerPartition = "X-Kafka-Partition"
-	headerChecksum  = "X-LFS-Checksum"
+	headerTopic       = "X-Kafka-Topic"
+	headerKey         = "X-Kafka-Key"
+	headerPartition   = "X-Kafka-Partition"
+	headerChecksum    = "X-LFS-Checksum"
+	headerChecksumAlg = "X-LFS-Checksum-Alg"
 )
 
 // validTopicPattern matches valid Kafka topic names (alphanumeric, dots, underscores, hyphens)
@@ -107,20 +108,30 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		partition = int32(parsed)
 	}
 
-	checksum := strings.TrimSpace(r.Header.Get(headerChecksum))
+	checksumHeader := strings.TrimSpace(r.Header.Get(headerChecksum))
+	checksumAlgHeader := strings.TrimSpace(r.Header.Get(headerChecksumAlg))
+	alg, err := p.resolveChecksumAlg(checksumAlgHeader)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if checksumHeader != "" && alg == lfs.ChecksumNone {
+		http.Error(w, "checksum provided but checksum algorithm is none", http.StatusBadRequest)
+		return
+	}
 	objectKey := p.buildObjectKey(topic)
 
 	start := time.Now()
-	sha256Hex, size, err := p.s3Uploader.UploadStream(r.Context(), objectKey, r.Body, p.maxBlob)
+	sha256Hex, checksum, checksumAlg, size, err := p.s3Uploader.UploadStream(r.Context(), objectKey, r.Body, p.maxBlob, alg)
 	if err != nil {
 		p.metrics.IncRequests(topic, "error", "lfs")
 		p.metrics.IncS3Errors()
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if checksum != "" && !strings.EqualFold(checksum, sha256Hex) {
+	if checksumHeader != "" && checksum != "" && !strings.EqualFold(checksumHeader, checksum) {
 		p.metrics.IncRequests(topic, "error", "lfs")
-		http.Error(w, (&lfs.ChecksumError{Expected: checksum, Actual: sha256Hex}).Error(), http.StatusBadRequest)
+		http.Error(w, (&lfs.ChecksumError{Expected: checksumHeader, Actual: checksum}).Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -130,6 +141,8 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		Key:         objectKey,
 		Size:        size,
 		SHA256:      sha256Hex,
+		Checksum:    checksum,
+		ChecksumAlg: checksumAlg,
 		ContentType: r.Header.Get("Content-Type"),
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 		ProxyID:     p.proxyID,
@@ -216,8 +229,8 @@ func (p *lfsProxy) validateHTTPAPIKey(r *http.Request) bool {
 
 // isValidTopicName validates a Kafka topic name.
 // Topics must be 1-249 characters, containing only alphanumeric, dots, underscores, or hyphens.
-func isValidTopicName(topic string) bool {
-	if len(topic) == 0 || len(topic) > maxTopicLength {
+func (p *lfsProxy) isValidTopicName(topic string) bool {
+	if len(topic) == 0 || len(topic) > p.topicMaxLength {
 		return false
 	}
 	return validTopicPattern.MatchString(topic)

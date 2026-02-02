@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/KafScale/platform/pkg/lfs"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -137,12 +138,32 @@ func (u *s3Uploader) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
-func (u *s3Uploader) Upload(ctx context.Context, key string, payload []byte) (string, error) {
+func (u *s3Uploader) Upload(ctx context.Context, key string, payload []byte, alg lfs.ChecksumAlg) (string, string, string, error) {
 	if key == "" {
-		return "", errors.New("s3 key required")
+		return "", "", "", errors.New("s3 key required")
 	}
-	hash := sha256.Sum256(payload)
-	hashHex := hex.EncodeToString(hash[:])
+	shaHasher := sha256.New()
+	if _, err := shaHasher.Write(payload); err != nil {
+		return "", "", "", err
+	}
+	shaHex := hex.EncodeToString(shaHasher.Sum(nil))
+
+	checksumAlg := alg
+	if checksumAlg == "" {
+		checksumAlg = lfs.ChecksumSHA256
+	}
+	var checksum string
+	if checksumAlg != lfs.ChecksumNone {
+		if checksumAlg == lfs.ChecksumSHA256 {
+			checksum = shaHex
+		} else {
+			computed, err := lfs.ComputeChecksum(checksumAlg, payload)
+			if err != nil {
+				return "", "", "", err
+			}
+			checksum = computed
+		}
+	}
 
 	size := int64(len(payload))
 	if size <= u.chunkSize {
@@ -152,17 +173,17 @@ func (u *s3Uploader) Upload(ctx context.Context, key string, payload []byte) (st
 			Body:          bytes.NewReader(payload),
 			ContentLength: aws.Int64(size),
 		})
-		return hashHex, err
+		return shaHex, checksum, string(checksumAlg), err
 	}
-	return hashHex, u.multipartUpload(ctx, key, payload)
+	return shaHex, checksum, string(checksumAlg), u.multipartUpload(ctx, key, payload)
 }
 
-func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Reader, maxSize int64) (string, int64, error) {
+func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Reader, maxSize int64, alg lfs.ChecksumAlg) (string, string, string, int64, error) {
 	if key == "" {
-		return "", 0, errors.New("s3 key required")
+		return "", "", "", 0, errors.New("s3 key required")
 	}
 	if reader == nil {
-		return "", 0, errors.New("reader required")
+		return "", "", "", 0, errors.New("reader required")
 	}
 	if u.chunkSize <= 0 {
 		u.chunkSize = defaultChunkSize
@@ -173,14 +194,34 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return "", 0, fmt.Errorf("create multipart upload: %w", err)
+		return "", "", "", 0, fmt.Errorf("create multipart upload: %w", err)
 	}
 	uploadID := createResp.UploadId
 	if uploadID == nil {
-		return "", 0, errors.New("missing upload id")
+		return "", "", "", 0, errors.New("missing upload id")
 	}
 
-	hasher := sha256.New()
+	shaHasher := sha256.New()
+	checksumAlg := alg
+	if checksumAlg == "" {
+		checksumAlg = lfs.ChecksumSHA256
+	}
+	var checksumHasher interface {
+		Write([]byte) (int, error)
+		Sum([]byte) []byte
+	}
+	if checksumAlg != lfs.ChecksumNone {
+		if checksumAlg == lfs.ChecksumSHA256 {
+			checksumHasher = shaHasher
+		} else {
+			h, err := lfs.NewChecksumHasher(checksumAlg)
+			if err != nil {
+				_ = u.abortUpload(ctx, key, *uploadID)
+				return "", "", "", 0, err
+			}
+			checksumHasher = h
+		}
+	}
 	parts := make([]types.CompletedPart, 0, 4)
 	buf := make([]byte, u.chunkSize)
 	partNum := int32(1)
@@ -192,11 +233,17 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 			total += int64(n)
 			if maxSize > 0 && total > maxSize {
 				_ = u.abortUpload(ctx, key, *uploadID)
-				return "", total, fmt.Errorf("blob size %d exceeds max %d", total, maxSize)
+				return "", "", "", total, fmt.Errorf("blob size %d exceeds max %d", total, maxSize)
 			}
-			if _, err := hasher.Write(buf[:n]); err != nil {
+			if _, err := shaHasher.Write(buf[:n]); err != nil {
 				_ = u.abortUpload(ctx, key, *uploadID)
-				return "", total, err
+				return "", "", "", total, err
+			}
+			if checksumHasher != nil && checksumHasher != shaHasher {
+				if _, err := checksumHasher.Write(buf[:n]); err != nil {
+					_ = u.abortUpload(ctx, key, *uploadID)
+					return "", "", "", total, err
+				}
 			}
 			partResp, err := u.api.UploadPart(ctx, &s3.UploadPartInput{
 				Bucket:     aws.String(u.bucket),
@@ -207,7 +254,7 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 			})
 			if err != nil {
 				_ = u.abortUpload(ctx, key, *uploadID)
-				return "", total, fmt.Errorf("upload part %d: %w", partNum, err)
+				return "", "", "", total, fmt.Errorf("upload part %d: %w", partNum, err)
 			}
 			parts = append(parts, types.CompletedPart{ETag: partResp.ETag, PartNumber: aws.Int32(partNum)})
 			partNum++
@@ -217,13 +264,13 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 		}
 		if readErr != nil {
 			_ = u.abortUpload(ctx, key, *uploadID)
-			return "", total, readErr
+			return "", "", "", total, readErr
 		}
 	}
 
 	if len(parts) == 0 {
 		_ = u.abortUpload(ctx, key, *uploadID)
-		return "", total, errors.New("empty upload")
+		return "", "", "", total, errors.New("empty upload")
 	}
 
 	_, err = u.api.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
@@ -236,9 +283,18 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 	})
 	if err != nil {
 		_ = u.abortUpload(ctx, key, *uploadID)
-		return "", total, fmt.Errorf("complete multipart upload: %w", err)
+		return "", "", "", total, fmt.Errorf("complete multipart upload: %w", err)
 	}
-	return hex.EncodeToString(hasher.Sum(nil)), total, nil
+	shaHex := hex.EncodeToString(shaHasher.Sum(nil))
+	checksum := ""
+	if checksumAlg != lfs.ChecksumNone {
+		if checksumAlg == lfs.ChecksumSHA256 {
+			checksum = shaHex
+		} else if checksumHasher != nil {
+			checksum = hex.EncodeToString(checksumHasher.Sum(nil))
+		}
+	}
+	return shaHex, checksum, string(checksumAlg), total, nil
 }
 
 func (u *s3Uploader) multipartUpload(ctx context.Context, key string, payload []byte) error {

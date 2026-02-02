@@ -17,6 +17,7 @@ package lfs
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -73,6 +74,42 @@ func TestConsumerUnwrapLFS(t *testing.T) {
 		Key:     "default/test-topic/lfs/2026/02/01/obj-123",
 		Size:    int64(len(blob)),
 		SHA256:  checksum,
+	}
+	envBytes, err := EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatalf("failed to encode envelope: %v", err)
+	}
+
+	result, err := consumer.Unwrap(context.Background(), envBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(result) != string(blob) {
+		t.Errorf("expected blob content, got %q", result)
+	}
+}
+
+
+func TestConsumerUnwrapMD5Checksum(t *testing.T) {
+	blob := []byte("md5-blob")
+	sha := sha256.Sum256(blob)
+	md5sum := md5.Sum(blob)
+
+	fetcher := &mockFetcher{
+		blobs: map[string][]byte{
+			"default/test-topic/lfs/2026/02/01/obj-123": blob,
+		},
+	}
+	consumer := NewConsumer(fetcher)
+
+	envelope := Envelope{
+		Version:     1,
+		Bucket:      "kafscale",
+		Key:         "default/test-topic/lfs/2026/02/01/obj-123",
+		Size:        int64(len(blob)),
+		SHA256:      hex.EncodeToString(sha[:]),
+		Checksum:    hex.EncodeToString(md5sum[:]),
+		ChecksumAlg: "md5",
 	}
 	envBytes, err := EncodeEnvelope(envelope)
 	if err != nil {

@@ -17,6 +17,7 @@ package lfs
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -310,6 +311,39 @@ func TestRecordValueStreamNoFetcher(t *testing.T) {
 	}
 	if !errors.Is(lfsErr.Err, ErrNoStreamFetcher) {
 		t.Errorf("expected ErrNoStreamFetcher, got %v", lfsErr.Err)
+	}
+}
+
+
+func TestRecordValueStreamMD5Checksum(t *testing.T) {
+	blob := []byte("blob content")
+	md5sum := md5.Sum(blob)
+	sha := sha256.Sum256(blob)
+
+	streamFetcher := &mockStreamFetcher{
+		blobs: map[string][]byte{"key": blob},
+	}
+
+	env := Envelope{
+		Version:     1,
+		Bucket:      "b",
+		Key:         "key",
+		Size:        int64(len(blob)),
+		SHA256:      hex.EncodeToString(sha[:]),
+		Checksum:    hex.EncodeToString(md5sum[:]),
+		ChecksumAlg: "md5",
+	}
+	envBytes, _ := EncodeEnvelope(env)
+
+	rec := NewRecord(envBytes, nil, WithStreamFetcher(streamFetcher))
+
+	reader, _, err := rec.ValueStream(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error getting stream: %v", err)
+	}
+	_, _ = io.ReadAll(reader)
+	if err := reader.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
 	}
 }
 

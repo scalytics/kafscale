@@ -28,6 +28,8 @@ type Envelope struct {
 	Key             string            `json:"key"`
 	Size            int64             `json:"size"`
 	SHA256          string            `json:"sha256"`
+	Checksum        string            `json:"checksum,omitempty"`
+	ChecksumAlg     string            `json:"checksum_alg,omitempty"`
 	ContentType     string            `json:"content_type,omitempty"`
 	OriginalHeaders map[string]string `json:"original_headers,omitempty"`
 	CreatedAt       string            `json:"created_at,omitempty"`

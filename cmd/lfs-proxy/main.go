@@ -46,6 +46,8 @@ const (
 	defaultHTTPIdleTimeoutSec        = 60
 	defaultHTTPHeaderTimeoutSec      = 10
 	defaultHTTPMaxHeaderBytes        = 1 << 20
+	defaultHTTPShutdownTimeoutSec    = 10
+	defaultTopicMaxLength            = 249
 )
 
 type lfsProxy struct {
@@ -64,6 +66,7 @@ type lfsProxy struct {
 	httpMaxHeaderBytes int
 	httpShutdownTimeout time.Duration
 	topicMaxLength int
+	checksumAlg  string
 	ready          uint32
 	lastHealthy    int64
 	cacheTTL       time.Duration
@@ -130,6 +133,7 @@ func main() {
 	httpMaxHeaderBytes := envInt("KAFSCALE_LFS_PROXY_HTTP_MAX_HEADER_BYTES", defaultHTTPMaxHeaderBytes)
 	httpShutdownTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_SHUTDOWN_TIMEOUT_SEC", defaultHTTPShutdownTimeoutSec)) * time.Second
 	topicMaxLength := envInt("KAFSCALE_LFS_PROXY_TOPIC_MAX_LENGTH", defaultTopicMaxLength)
+	checksumAlg := envOrDefault("KAFSCALE_LFS_PROXY_CHECKSUM_ALGO", "sha256")
 
 	store, err := buildMetadataStore(ctx)
 	if err != nil {
@@ -192,6 +196,7 @@ func main() {
 		httpMaxHeaderBytes: httpMaxHeaderBytes,
 		httpShutdownTimeout: httpShutdownTimeout,
 		topicMaxLength: topicMaxLength,
+		checksumAlg:  checksumAlg,
 	}
 	if len(backends) > 0 {
 		p.setCachedBackends(backends)

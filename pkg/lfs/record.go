@@ -17,9 +17,7 @@ package lfs
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"io"
+		"io"
 	"sync"
 )
 
@@ -171,11 +169,22 @@ func (r *Record) ValueStream(ctx context.Context) (io.ReadCloser, int64, error) 
 	}
 
 	if r.validateChecksum {
-		return &checksumReader{
-			reader:   reader,
-			expected: env.SHA256,
-			hasher:   sha256.New(),
-		}, length, nil
+		alg, expected, ok, err := EnvelopeChecksum(env)
+		if err != nil {
+			return nil, 0, &LfsError{Op: "checksum", Err: err}
+		}
+		if ok {
+			hasher, err := NewChecksumHasher(alg)
+			if err != nil {
+				return nil, 0, &LfsError{Op: "checksum", Err: err}
+			}
+			return &checksumReader{
+				reader:   reader,
+				expected: expected,
+				hasher:   hasher,
+				alg:      alg,
+			}, length, nil
+		}
 	}
 
 	return reader, length, nil
@@ -239,6 +248,7 @@ type checksumReader struct {
 		Write([]byte) (int, error)
 		Sum([]byte) []byte
 	}
+	alg    ChecksumAlg
 	closed bool
 }
 
@@ -267,7 +277,7 @@ func (r *checksumReader) Close() error {
 		return err
 	}
 
-	actual := hex.EncodeToString(r.hasher.Sum(nil))
+	actual := formatChecksum(r.hasher.Sum(nil))
 	if actual != r.expected {
 		return &ChecksumError{Expected: r.expected, Actual: actual}
 	}

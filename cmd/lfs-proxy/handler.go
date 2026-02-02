@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"fmt"
 	"hash/crc32"
 	"net"
@@ -511,6 +512,10 @@ func (p *lfsProxy) handleProduce(ctx context.Context, header *protocol.RequestHe
 }
 
 func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.RequestHeader, req *protocol.ProduceRequest) (rewriteResult, error) {
+	if p.logger == nil {
+		p.logger = slog.Default()
+	}
+
 	if req == nil {
 		return rewriteResult{}, errors.New("nil produce request")
 	}
@@ -553,7 +558,15 @@ func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.R
 					recordChanged = true
 					modified = true
 					topics[topic.Name] = struct{}{}
-					checksum := strings.TrimSpace(string(lfsValue))
+					checksumHeader := strings.TrimSpace(string(lfsValue))
+					algHeader, _ := findHeaderValue(headers, "LFS_BLOB_ALG")
+					alg, err := p.resolveChecksumAlg(string(algHeader))
+					if err != nil {
+						return rewriteResult{}, err
+					}
+					if checksumHeader != "" && alg == lfs.ChecksumNone {
+						return rewriteResult{}, errors.New("checksum provided but checksum algorithm is none")
+					}
 					payload := rec.Value
 					p.logger.Info("LFS blob detected", "topic", topic.Name, "size", len(payload))
 					if int64(len(payload)) > p.maxBlob {
@@ -561,13 +574,13 @@ func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.R
 						return rewriteResult{}, fmt.Errorf("blob size %d exceeds max %d", len(payload), p.maxBlob)
 					}
 					key := p.buildObjectKey(topic.Name)
-					sha256Hex, err := p.s3Uploader.Upload(ctx, key, payload)
+					sha256Hex, checksum, checksumAlg, err := p.s3Uploader.Upload(ctx, key, payload, alg)
 					if err != nil {
 						p.metrics.IncS3Errors()
 						return rewriteResult{}, err
 					}
-					if checksum != "" && !strings.EqualFold(checksum, sha256Hex) {
-						return rewriteResult{}, &lfs.ChecksumError{Expected: checksum, Actual: sha256Hex}
+					if checksumHeader != "" && checksum != "" && !strings.EqualFold(checksumHeader, checksum) {
+						return rewriteResult{}, &lfs.ChecksumError{Expected: checksumHeader, Actual: checksum}
 					}
 					env := lfs.Envelope{
 						Version:         1,
@@ -575,6 +588,8 @@ func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.R
 						Key:             key,
 						Size:            int64(len(payload)),
 						SHA256:          sha256Hex,
+						Checksum:        checksum,
+						ChecksumAlg:     checksumAlg,
 						ContentType:     headerValue(headers, "content-type"),
 						OriginalHeaders: headersToMap(headers),
 						CreatedAt:       time.Now().UTC().Format(time.RFC3339),
@@ -1085,3 +1100,10 @@ func int32FromBytes(b []byte) int32 {
 }
 
 var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
+
+func (p *lfsProxy) resolveChecksumAlg(raw string) (lfs.ChecksumAlg, error) {
+	if strings.TrimSpace(raw) == "" {
+		return lfs.NormalizeChecksumAlg(p.checksumAlg)
+	}
+	return lfs.NormalizeChecksumAlg(raw)
+}

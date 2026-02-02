@@ -17,9 +17,7 @@ package lfs
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-)
+	)
 
 // BlobFetcher downloads LFS blobs from storage.
 type BlobFetcher interface {
@@ -72,10 +70,18 @@ func (c *Consumer) Unwrap(ctx context.Context, value []byte) ([]byte, error) {
 	}
 
 	if c.validateChecksum {
-		hash := sha256.Sum256(blob)
-		actual := hex.EncodeToString(hash[:])
-		if actual != env.SHA256 {
-			return nil, &ChecksumError{Expected: env.SHA256, Actual: actual}
+		alg, expected, ok, err := EnvelopeChecksum(env)
+		if err != nil {
+			return nil, &LfsError{Op: "checksum", Err: err}
+		}
+		if ok {
+			actual, err := ComputeChecksum(alg, blob)
+			if err != nil {
+				return nil, &LfsError{Op: "checksum", Err: err}
+			}
+			if actual != expected {
+				return nil, &ChecksumError{Expected: expected, Actual: actual}
+			}
 		}
 	}
 
@@ -100,10 +106,18 @@ func (c *Consumer) UnwrapEnvelope(ctx context.Context, value []byte) (*Envelope,
 	}
 
 	if c.validateChecksum {
-		hash := sha256.Sum256(blob)
-		actual := hex.EncodeToString(hash[:])
-		if actual != env.SHA256 {
-			return &env, nil, &ChecksumError{Expected: env.SHA256, Actual: actual}
+		alg, expected, ok, err := EnvelopeChecksum(env)
+		if err != nil {
+			return &env, nil, &LfsError{Op: "checksum", Err: err}
+		}
+		if ok {
+			actual, err := ComputeChecksum(alg, blob)
+			if err != nil {
+				return &env, nil, &LfsError{Op: "checksum", Err: err}
+			}
+			if actual != expected {
+				return &env, nil, &ChecksumError{Expected: expected, Actual: actual}
+			}
 		}
 	}
 
