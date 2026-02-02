@@ -700,8 +700,20 @@ mappings:
 - [x] Header name decided: `LFS_BLOB`
 - [x] S3 key format: `{namespace}/{topic}/lfs/{yyyy}/{mm}/{dd}/obj-{uuid}`
 - [ ] Determine if lfs-proxy should be operator-managed (Phase 3)
-- [ ] AWS credentials handling in Helm (Secret refs vs env vars)
+- [x] AWS credentials handling in Helm (Secret refs vs env vars) - `existingSecret` support added
 - [ ] Concurrency limit for LFS resolution in Processors (Phase 4)
 - [ ] Memory limits for hybrid mode blob inlining (Phase 4)
 - [ ] Delta Lake Go library evaluation (Phase 5)
 - [ ] Webhook sink authentication methods (Phase 5)
+
+## Security Hardening (2026-02-02)
+
+All security hardening phases complete. See [security-tasks.md](../../../security-tasks.md) for details.
+
+| Phase | Status | Summary |
+|-------|--------|---------|
+| Phase 0 | ✅ | Baseline documentation |
+| Phase 1 | ✅ | ClusterIP default, HTTP disabled, existingSecret support |
+| Phase 2 | ✅ | HTTP timeouts, topic validation |
+| Phase 3 | ✅ | Constant-time API key compare, header allowlist |
+| Phase 4 | Future | TLS/SASL options |
