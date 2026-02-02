@@ -84,3 +84,92 @@ func TestResolverEnvelopeChecksum(t *testing.T) {
 		t.Fatalf("unexpected payload: %s", res.Payload)
 	}
 }
+
+func TestResolverChecksumMismatch(t *testing.T) {
+	payload := []byte("hello")
+	checksum, err := ComputeChecksum(ChecksumSHA256, []byte("other"))
+	if err != nil {
+		t.Fatalf("checksum: %v", err)
+	}
+	env := Envelope{
+		Version:     1,
+		Bucket:      "b",
+		Key:         "k",
+		Size:        int64(len(payload)),
+		SHA256:      checksum,
+		Checksum:    checksum,
+		ChecksumAlg: string(ChecksumSHA256),
+	}
+	encoded, err := EncodeEnvelope(env)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	r := NewResolver(ResolverConfig{ValidateChecksum: true}, fakeS3Reader{payload: payload})
+	_, ok, err := r.Resolve(context.Background(), encoded)
+	if err == nil {
+		t.Fatalf("expected checksum error")
+	}
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	if _, isChecksum := err.(*ChecksumError); !isChecksum {
+		t.Fatalf("expected ChecksumError, got %T", err)
+	}
+}
+
+func TestResolverMaxSize(t *testing.T) {
+	payload := []byte("hello")
+	checksum, err := ComputeChecksum(ChecksumSHA256, payload)
+	if err != nil {
+		t.Fatalf("checksum: %v", err)
+	}
+	env := Envelope{
+		Version: 1,
+		Bucket:  "b",
+		Key:     "k",
+		Size:    int64(len(payload)),
+		SHA256:  checksum,
+	}
+	encoded, err := EncodeEnvelope(env)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	r := NewResolver(ResolverConfig{MaxSize: 2, ValidateChecksum: true}, fakeS3Reader{payload: payload})
+	_, ok, err := r.Resolve(context.Background(), encoded)
+	if err == nil {
+		t.Fatalf("expected max size error")
+	}
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+}
+
+func TestResolverMissingS3Reader(t *testing.T) {
+	payload := []byte("hello")
+	checksum, err := ComputeChecksum(ChecksumSHA256, payload)
+	if err != nil {
+		t.Fatalf("checksum: %v", err)
+	}
+	env := Envelope{
+		Version: 1,
+		Bucket:  "b",
+		Key:     "k",
+		Size:    int64(len(payload)),
+		SHA256:  checksum,
+	}
+	encoded, err := EncodeEnvelope(env)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	r := NewResolver(ResolverConfig{ValidateChecksum: true}, nil)
+	_, ok, err := r.Resolve(context.Background(), encoded)
+	if err == nil {
+		t.Fatalf("expected error for missing s3 reader")
+	}
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+}

@@ -88,6 +88,8 @@ Gemfile.lock
 
 # Ignore demo node_modules
 examples/E50_JS-kafscale-demo/node_modules/
+# Ignore SDK node_modules
+lfs-client-sdk/js/node_modules/
 
 # LFS demo artifacts
 records.txt

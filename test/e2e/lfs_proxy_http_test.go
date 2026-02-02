@@ -56,6 +56,8 @@ func TestLfsProxyHTTPProduce(t *testing.T) {
 	t.Cleanup(s3Server.Close)
 
 	brokerAddr, received, closeBackend := startFakeKafkaBackend(t)
+	// Start embedded etcd and seed topics for metadata responses
+	etcdEndpoints := startLfsProxyEtcd(t, "127.0.0.1", 9092, "http-limited")
 	t.Cleanup(closeBackend)
 
 	proxyPort := pickFreePort(t)
@@ -65,10 +67,12 @@ func TestLfsProxyHTTPProduce(t *testing.T) {
 	configureProcessGroup(proxyCmd)
 	proxyCmd.Env = append(os.Environ(),
 		fmt.Sprintf("KAFSCALE_LFS_PROXY_ADDR=127.0.0.1:%s", proxyPort),
+		"KAFSCALE_LFS_PROXY_ADVERTISED_HOST=127.0.0.1",
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_ADVERTISED_PORT=%s", proxyPort),
 		fmt.Sprintf("KAFSCALE_LFS_PROXY_HTTP_ADDR=127.0.0.1:%s", httpPort),
 		fmt.Sprintf("KAFSCALE_LFS_PROXY_HEALTH_ADDR=127.0.0.1:%s", healthPort),
 		fmt.Sprintf("KAFSCALE_LFS_PROXY_BACKENDS=%s", brokerAddr),
-		"KAFSCALE_LFS_PROXY_ETCD_ENDPOINTS=http://127.0.0.1:1",
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_ETCD_ENDPOINTS=%s", strings.Join(etcdEndpoints, ",")),
 		"KAFSCALE_LFS_PROXY_S3_BUCKET=lfs-e2e",
 		"KAFSCALE_LFS_PROXY_S3_REGION=us-east-1",
 		fmt.Sprintf("KAFSCALE_LFS_PROXY_S3_ENDPOINT=%s", s3Server.URL),

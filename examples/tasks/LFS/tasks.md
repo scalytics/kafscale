@@ -354,6 +354,47 @@ lfsProxy:
 
 ---
 
+### 2.4 Multilingual SDKs (Highest Priority)
+
+**Goal:** Provide LFS wrappers for Go, Java, JavaScript, and Python that integrate with plain Kafka clients.
+
+#### Go SDK Hardening
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| G2-001 | Add Go SDK usage examples | P0 | [ ] | `pkg/lfs/doc.go` |
+| G2-002 | Add Go SDK integration tests | P0 | [ ] | LFS proxy + MinIO |
+
+#### Java SDK
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| J2-008 | Add Java streaming producer | P0 | [ ] | HTTP `/lfs/produce` |
+| J2-009 | Add resolver utilities | P0 | [ ] | Envelope + checksum helpers |
+| J2-010 | Add integration tests | P1 | [ ] | TestContainers + MinIO |
+
+#### JavaScript/TypeScript SDK
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| JS2-001 | Create SDK scaffold | P0 | [ ] | `lfs-client-sdk/js/` |
+| JS2-002 | Consumer helper | P0 | [ ] | Detect envelope + S3 fetch |
+| JS2-003 | Producer helper | P0 | [ ] | HTTP `/lfs/produce` |
+| JS2-004 | Types + examples | P1 | [ ] | TypeScript types |
+| JS2-005 | Integration tests | P1 | [ ] | MinIO + local proxy |
+
+#### Python SDK
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| PY2-001 | Create SDK scaffold | P0 | [ ] | `lfs-client-sdk/python/` |
+| PY2-002 | Consumer helper | P0 | [ ] | Detect envelope + S3 fetch |
+| PY2-003 | Producer helper | P0 | [ ] | HTTP `/lfs/produce` |
+| PY2-004 | Examples + docs | P1 | [ ] | Quickstart |
+| PY2-005 | Integration tests | P1 | [ ] | MinIO + local proxy |
+
+---
+
 ## Phase 3: Enhancements
 
 ### 3.1 Explode Processor (Optional)

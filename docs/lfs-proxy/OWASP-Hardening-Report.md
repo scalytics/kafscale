@@ -51,3 +51,5 @@ Public endpoints include any externally reachable HTTP, gRPC, or Kafka endpoints
 - Ensure TLS termination at ingress/load balancer.
 - Add rate limiting or WAF if public.
 - Avoid exposing health/metrics publicly.
+
+SDKs are client-side only and do not introduce new public endpoints.

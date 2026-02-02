@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo medical-lfs-demo video-lfs-demo industrial-lfs-demo platform-demo idoc-demo act-runnable help clean-kind-all
+.PHONY: proto build test tidy lint generate build-sdk docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-lfs-proxy-broker test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo medical-lfs-demo video-lfs-demo industrial-lfs-demo platform-demo idoc-demo act-runnable help clean-kind-all
 
 REGISTRY ?= ghcr.io/kafscale
 STAMP_DIR ?= .build
@@ -77,6 +77,9 @@ KAFSCALE_DEMO_ETCD_INMEM ?= 1
 KAFSCALE_DEMO_ETCD_REPLICAS ?= 3
 BROKER_PORT ?= 39092
 BROKER_PORTS ?= 39092 39093 39094
+SDK_JAVA_BUILD_CMD ?= mvn -q -DskipTests package
+SDK_JS_BUILD_CMD ?= npm install && npm run build
+SDK_PY_BUILD_CMD ?= python -m build
 
 proto: ## Generate protobuf + gRPC stubs
 	buf generate
@@ -85,6 +88,14 @@ generate: proto
 
 build: ## Build all binaries
 	go build ./...
+
+build-sdk: ## Build all LFS client SDKs
+	@echo "Building Java SDK..."
+	@cd lfs-client-sdk/java && $(SDK_JAVA_BUILD_CMD)
+	@echo "Building JS SDK..."
+	@cd lfs-client-sdk/js && $(SDK_JS_BUILD_CMD)
+	@echo "Building Python SDK..."
+	@cd lfs-client-sdk/python && $(SDK_PY_BUILD_CMD)
 
 test: ## Run unit tests + vet + race
 	go vet ./...
@@ -282,6 +293,11 @@ test-mcp: ## Run MCP e2e tests (in-memory metadata store + streamable HTTP).
 test-multi-segment-durability: release-broker-ports ensure-minio ## Run multi-segment restart durability e2e (embedded etcd + MinIO).
 	KAFSCALE_E2E=1 \
 	go test -tags=e2e ./test/e2e -run TestMultiSegmentRestartDurability -v
+
+
+test-lfs-proxy-broker: ## Run LFS proxy e2e with real broker (embedded etcd + in-memory S3).
+	KAFSCALE_E2E=1 \
+	go test -tags=e2e ./test/e2e -run TestLfsProxyBrokerE2E -v
 
 test-full: ## Run unit tests plus local + MinIO-backed e2e suites.
 	$(MAKE) test

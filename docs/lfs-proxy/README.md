@@ -20,12 +20,16 @@ limitations under the License.
 ## Contents
 
 - `data-flow.md` — End-to-end write/read flows, object key format, failure modes, and diagrams.
+- `blob-transformer-proposal.md` — Proposal for a declarative blob transformer processor with LFS + LLM integration.
+- `blob-transformer-solution.md` — Solution design for the blob transformer processor architecture and config model.
 - `idoc-explode-architecture.md`: IDoc explode processor design, architecture, and broker integration.
 - `kafscale-lfs-idoc-topic-overview.md`: Topic overview for KafScale + LFS + IDoc exploder.
 - `broker-deep-dive.md`: Broker integration details (groups, topics, retention).
 - `security-tasks.md` — Phased security hardening plan with acceptance criteria.
 - `OWASP-Hardening-Report.md` — OWASP-aligned inspection notes for public endpoints.
 - `demos.md` — LFS demo gallery and use-case promotion.
+- `sdk-roadmap.md` — SDK coverage and priorities for LFS clients.
+- `sdk-solution.md` — SDK design, packaging, builds, and testing.
 
 ## Sync Notes
 - Keep this index in sync when docs are added, removed, or renamed.

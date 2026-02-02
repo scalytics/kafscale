@@ -27,6 +27,16 @@ This manual describes the end-to-end data flow for the LFS proxy: how large blob
 - **Consumer SDK** (`pkg/lfs`): Detects envelopes and fetches objects from S3.
 - **Explode Processor (LFS module)**: Resolves LFS envelopes and emits IDoc-derived topics.
 
+
+## Client Perspective (Transparent Broker Mode)
+
+Kafka clients connect to the LFS proxy as if it were a broker. The proxy speaks the Kafka protocol and advertises itself in metadata, so clients do not need special drivers.
+
+- **Non-LFS clients** (no `LFS_BLOB` header): records pass through unchanged to the broker.
+- **LFS-aware clients** (with `LFS_BLOB` header or HTTP `/lfs/produce`): the proxy uploads payloads to S3 and replaces record values with a compact JSON pointer envelope.
+
+Important: a **real broker does not understand LFS headers**. If a client bypasses the proxy and produces directly to the broker, the payload is stored in Kafka without LFS rewriting.
+
 ## Object Key Format
 
 Objects are stored with a predictable prefix:
