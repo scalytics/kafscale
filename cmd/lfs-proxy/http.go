@@ -62,8 +62,15 @@ func (p *lfsProxy) startHTTPServer(ctx context.Context, addr string) {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	go func() {
-		p.logger.Info("lfs proxy http listening", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		p.logger.Info("lfs proxy http listening", "addr", addr, "tls", p.httpTLSConfig != nil)
+		var err error
+		if p.httpTLSConfig != nil {
+			srv.TLSConfig = p.httpTLSConfig
+			err = srv.ListenAndServeTLS(p.httpTLSCertFile, p.httpTLSKeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			p.logger.Warn("lfs proxy http server error", "error", err)
 		}
 	}()

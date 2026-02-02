@@ -104,11 +104,11 @@ Acceptance criteria:
 - [x] Envelope header policy documented and enforced (allowlist or redaction).
 - [x] API key comparison uses constant-time function.
 
-## Phase 4 - Future Enhancements
+## Phase 4 - Future Enhancements ✅ COMPLETE
 
 - [x] Add TLS/SASL options for Kafka backend connections.
-- [ ] Support TLS for HTTP endpoint (or enforce ingress termination).
+- [x] Support TLS for HTTP endpoint (or enforce ingress termination).
 
 Acceptance criteria:
 - [x] Documented TLS/SASL config options and examples.
-- [ ] Integration test or manual recipe confirming TLS endpoint works.
+- [x] Integration test or manual recipe confirming TLS endpoint works.

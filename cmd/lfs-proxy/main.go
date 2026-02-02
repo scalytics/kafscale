@@ -72,6 +72,9 @@ type lfsProxy struct {
 	backendSASLMechanism string
 	backendSASLUsername  string
 	backendSASLPassword  string
+	httpTLSConfig        *tls.Config
+	httpTLSCertFile      string
+	httpTLSKeyFile       string
 	ready                uint32
 	lastHealthy          int64
 	cacheTTL             time.Duration
@@ -147,6 +150,11 @@ func main() {
 	backendSASLMechanism := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_MECHANISM"))
 	backendSASLUsername := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_USERNAME"))
 	backendSASLPassword := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_PASSWORD"))
+	httpTLSConfig, httpTLSCertFile, httpTLSKeyFile, err := buildHTTPServerTLSConfig()
+	if err != nil {
+		logger.Error("http tls config failed", "error", err)
+		os.Exit(1)
+	}
 
 	store, err := buildMetadataStore(ctx)
 	if err != nil {
@@ -214,6 +222,9 @@ func main() {
 		backendSASLMechanism: backendSASLMechanism,
 		backendSASLUsername:  backendSASLUsername,
 		backendSASLPassword:  backendSASLPassword,
+		httpTLSConfig:        httpTLSConfig,
+		httpTLSCertFile:      httpTLSCertFile,
+		httpTLSKeyFile:       httpTLSKeyFile,
 	}
 	if len(backends) > 0 {
 		p.setCachedBackends(backends)
