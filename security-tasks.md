@@ -77,16 +77,19 @@ Acceptance criteria:
 - [x] Invalid topic header returns 400 with clear error message.
 - [x] Checksum mismatch increments orphan metric and logs orphan key (already implemented).
 
-## Phase 3 - Low Priority (Data Hygiene) ✅ PARTIAL
+## Phase 3 - Low Priority (Data Hygiene) ✅ COMPLETE
 
-- [ ] Consider redacting `OriginalHeaders` in the envelope or allowlist safe headers.
+- [x] Implement header allowlist for `OriginalHeaders` in the envelope.
 - [x] Use constant-time compare for API key validation.
 
-**Changes Made (http.go):**
-- `validateHTTPAPIKey()` now uses `subtle.ConstantTimeCompare()` instead of `==`
+**Changes Made:**
+- `http.go`: `validateHTTPAPIKey()` now uses `subtle.ConstantTimeCompare()` instead of `==`
+- `handler.go`: Added `safeHeaderAllowlist` to filter sensitive headers from envelope
+  - Allowed: `content-type`, `content-encoding`, `correlation-id`, `message-id`, `x-correlation-id`, `x-request-id`, `traceparent`, `tracestate`
+  - Redacted: All other headers (prevents leaking auth tokens, API keys, cookies)
 
 Acceptance criteria:
-- [ ] Envelope header policy documented and enforced (allowlist or redaction).
+- [x] Envelope header policy documented and enforced (allowlist or redaction).
 - [x] API key comparison uses constant-time function.
 
 ## Phase 4 - Future Enhancements

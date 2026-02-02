@@ -1022,13 +1022,33 @@ func headerValue(headers []kmsg.Header, key string) string {
 	return ""
 }
 
+// safeHeaderAllowlist defines headers that are safe to include in the LFS envelope.
+// Headers not in this list are redacted to prevent leaking sensitive information.
+var safeHeaderAllowlist = map[string]bool{
+	"content-type":     true,
+	"content-encoding": true,
+	"correlation-id":   true,
+	"message-id":       true,
+	"x-correlation-id": true,
+	"x-request-id":     true,
+	"traceparent":      true, // W3C trace context
+	"tracestate":       true, // W3C trace context
+}
+
 func headersToMap(headers []kmsg.Header) map[string]string {
 	if len(headers) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(headers))
+	out := make(map[string]string)
 	for _, header := range headers {
-		out[header.Key] = string(header.Value)
+		key := strings.ToLower(header.Key)
+		// Only include safe headers in the envelope
+		if safeHeaderAllowlist[key] {
+			out[header.Key] = string(header.Value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
