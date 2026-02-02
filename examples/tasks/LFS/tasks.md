@@ -374,14 +374,15 @@ lfsProxy:
 | J2-010 | Add integration tests | P1 | [ ] | TestContainers + MinIO |
 
 #### JavaScript/TypeScript SDK
+Deferred: JS SDK work paused; resume after Go/Java/Python parity.
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| JS2-001 | Create SDK scaffold | P0 | [ ] | `lfs-client-sdk/js/` |
-| JS2-002 | Consumer helper | P0 | [ ] | Detect envelope + S3 fetch |
-| JS2-003 | Producer helper | P0 | [ ] | HTTP `/lfs/produce` |
-| JS2-004 | Types + examples | P1 | [ ] | TypeScript types |
-| JS2-005 | Integration tests | P1 | [ ] | MinIO + local proxy |
+| JS2-001 | Create SDK scaffold | P3 | [ ] | `lfs-client-sdk/js/` (deferred low priority) |
+| JS2-002 | Consumer helper | P3 | [ ] | Detect envelope + S3 fetch (deferred low priority) |
+| JS2-003 | Producer helper | P3 | [ ] | HTTP `/lfs/produce` (deferred low priority) |
+| JS2-004 | Types + examples | P3 | [ ] | TypeScript types (deferred low priority) |
+| JS2-005 | Integration tests | P3 | [ ] | MinIO + local proxy (deferred low priority) |
 
 #### Python SDK
 

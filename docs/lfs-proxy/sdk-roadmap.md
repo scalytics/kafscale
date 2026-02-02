@@ -29,12 +29,12 @@ consuming large payloads.
 ## Status Summary
 - **Go**: ✅ Consumer + producer SDKs are implemented in `pkg/lfs/`.
 - **Java**: ❌ Planned (consumer + producer wrappers).
-- **JavaScript/TypeScript**: ❌ Planned.
+- **JavaScript/TypeScript**: ⏳ Deferred (low priority).
 - **Python**: ❌ Planned.
 
 ## Priority
 SDKs are the highest priority milestone after LFS core integration. The intent is
-full feature parity across Go, Java, JavaScript/TypeScript, and Python.
+full feature parity across Go, Java, JavaScript/TypeScript, and Python (JS deferred).
 
 ## Planned Deliverables
 
@@ -47,7 +47,7 @@ full feature parity across Go, Java, JavaScript/TypeScript, and Python.
 - Producer wrapper for `/lfs/produce` streaming.
 - JUnit + TestContainers integration tests.
 
-### JavaScript/TypeScript SDK
+### JavaScript/TypeScript SDK (Deferred)
 - Consumer helper using AWS SDK v3.
 - Producer helper using LFS proxy HTTP API.
 - Types, examples, and integration tests.

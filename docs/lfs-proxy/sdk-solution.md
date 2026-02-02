@@ -17,12 +17,12 @@ limitations under the License.
 
 # LFS SDKs: Solution Design
 
-This document defines the design, packaging, builds, and testing for LFS SDKs in Go, Java, JavaScript/TypeScript, and Python. SDKs are **client-side only** and do not introduce new public endpoints.
+This document defines the design, packaging, builds, and testing for LFS SDKs in Go, Java, JavaScript/TypeScript (deferred), and Python. SDKs are **client-side only** and do not introduce new public endpoints.
 
 ## Goals
 - Wrap plain Kafka clients with LFS-aware helpers for producing and consuming large payloads.
 - Provide consistent envelope parsing, checksum validation, and S3 resolution.
-- Keep parity across Go, Java, JavaScript/TypeScript, and Python.
+- Keep parity across Go, Java, JavaScript/TypeScript (deferred), and Python.
 
 ## Architecture Overview
 SDKs expose two primary concerns:
@@ -56,7 +56,7 @@ pkg/lfs/               # Go SDK (existing)
 ### JavaScript/TypeScript
 - Package: `lfs-client-sdk/js` (npm).
 - Name: `@kafscale/lfs-sdk`.
-- Kafka: `node-rdkafka`.
+- Kafka: `@confluentinc/kafka-javascript` (deferred until JS SDK resumes).
 - S3: AWS SDK v3.
 - Build/test: `npm run build`, `npm test`.
 
