@@ -37,6 +37,15 @@ const (
 	defaultProxyAddr = ":9092"
 	defaultMaxBlob   = int64(5 << 30)
 	defaultChunkSize = int64(5 << 20)
+	defaultDialTimeoutMs             = 5000
+	defaultBackendBackoffMs          = 500
+	defaultBackendRefreshIntervalSec = 3
+	defaultS3HealthIntervalSec       = 30
+	defaultHTTPReadTimeoutSec        = 30
+	defaultHTTPWriteTimeoutSec       = 300
+	defaultHTTPIdleTimeoutSec        = 60
+	defaultHTTPHeaderTimeoutSec      = 10
+	defaultHTTPMaxHeaderBytes        = 1 << 20
 )
 
 type lfsProxy struct {
@@ -48,6 +57,13 @@ type lfsProxy struct {
 	logger         *slog.Logger
 	rr             uint32
 	dialTimeout    time.Duration
+	httpReadTimeout  time.Duration
+	httpWriteTimeout time.Duration
+	httpIdleTimeout  time.Duration
+	httpHeaderTimeout time.Duration
+	httpMaxHeaderBytes int
+	httpShutdownTimeout time.Duration
+	topicMaxLength int
 	ready          uint32
 	lastHealthy    int64
 	cacheTTL       time.Duration
@@ -86,7 +102,8 @@ func main() {
 	advertisedPort := envPort("KAFSCALE_LFS_PROXY_ADVERTISED_PORT", portFromAddr(addr, 9092))
 	logger.Info("advertised address configured", "host", advertisedHost, "port", advertisedPort)
 	backends := splitCSV(os.Getenv("KAFSCALE_LFS_PROXY_BACKENDS"))
-	backendBackoff := time.Duration(envInt("KAFSCALE_LFS_PROXY_BACKEND_BACKOFF_MS", 500)) * time.Millisecond
+	backendBackoff := time.Duration(envInt("KAFSCALE_LFS_PROXY_BACKEND_BACKOFF_MS", defaultBackendBackoffMs)) * time.Millisecond
+	backendRefreshInterval := time.Duration(envInt("KAFSCALE_LFS_PROXY_BACKEND_REFRESH_INTERVAL_SEC", defaultBackendRefreshIntervalSec)) * time.Second
 	cacheTTL := time.Duration(envInt("KAFSCALE_LFS_PROXY_BACKEND_CACHE_TTL_SEC", 60)) * time.Second
 	if cacheTTL <= 0 {
 		cacheTTL = 60 * time.Second
@@ -104,6 +121,15 @@ func main() {
 	chunkSize := envInt64("KAFSCALE_LFS_PROXY_CHUNK_SIZE", defaultChunkSize)
 	proxyID := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_ID"))
 	s3Namespace := envOrDefault("KAFSCALE_S3_NAMESPACE", "default")
+	dialTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_DIAL_TIMEOUT_MS", defaultDialTimeoutMs)) * time.Millisecond
+	s3HealthInterval := time.Duration(envInt("KAFSCALE_LFS_PROXY_S3_HEALTH_INTERVAL_SEC", defaultS3HealthIntervalSec)) * time.Second
+	httpReadTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_READ_TIMEOUT_SEC", defaultHTTPReadTimeoutSec)) * time.Second
+	httpWriteTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_WRITE_TIMEOUT_SEC", defaultHTTPWriteTimeoutSec)) * time.Second
+	httpIdleTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_IDLE_TIMEOUT_SEC", defaultHTTPIdleTimeoutSec)) * time.Second
+	httpHeaderTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_HEADER_TIMEOUT_SEC", defaultHTTPHeaderTimeoutSec)) * time.Second
+	httpMaxHeaderBytes := envInt("KAFSCALE_LFS_PROXY_HTTP_MAX_HEADER_BYTES", defaultHTTPMaxHeaderBytes)
+	httpShutdownTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_SHUTDOWN_TIMEOUT_SEC", defaultHTTPShutdownTimeoutSec)) * time.Second
+	topicMaxLength := envInt("KAFSCALE_LFS_PROXY_TOPIC_MAX_LENGTH", defaultTopicMaxLength)
 
 	store, err := buildMetadataStore(ctx)
 	if err != nil {
@@ -148,7 +174,7 @@ func main() {
 		store:          store,
 		backends:       backends,
 		logger:         logger,
-		dialTimeout:    5 * time.Second,
+		dialTimeout:    dialTimeout,
 		cacheTTL:       cacheTTL,
 		apiVersions:    generateProxyApiVersions(),
 		metrics:        metrics,
@@ -159,6 +185,13 @@ func main() {
 		chunkSize:      chunkSize,
 		proxyID:        proxyID,
 		httpAPIKey:     httpAPIKey,
+		httpReadTimeout:  httpReadTimeout,
+		httpWriteTimeout: httpWriteTimeout,
+		httpIdleTimeout:  httpIdleTimeout,
+		httpHeaderTimeout: httpHeaderTimeout,
+		httpMaxHeaderBytes: httpMaxHeaderBytes,
+		httpShutdownTimeout: httpShutdownTimeout,
+		topicMaxLength: topicMaxLength,
 	}
 	if len(backends) > 0 {
 		p.setCachedBackends(backends)
@@ -166,8 +199,8 @@ func main() {
 		p.setReady(true)
 	}
 	p.markS3Healthy(true)
-	p.startBackendRefresh(ctx, backendBackoff)
-	p.startS3HealthCheck(ctx, 30*time.Second)
+	p.startBackendRefresh(ctx, backendBackoff, backendRefreshInterval)
+	p.startS3HealthCheck(ctx, s3HealthInterval)
 	if healthAddr != "" {
 		p.startHealthServer(ctx, healthAddr)
 	}
@@ -293,10 +326,20 @@ func (p *lfsProxy) startMetricsServer(ctx context.Context, addr string) {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		p.metrics.WritePrometheus(w)
 	})
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadTimeout:       p.httpReadTimeout,
+		WriteTimeout:      p.httpWriteTimeout,
+		IdleTimeout:       p.httpIdleTimeout,
+		ReadHeaderTimeout: p.httpHeaderTimeout,
+		MaxHeaderBytes:    p.httpMaxHeaderBytes,
+	}
 	go func() {
 		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), p.httpShutdownTimeout)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
 	}()
 	go func() {
 		p.logger.Info("lfs proxy metrics listening", "addr", addr)

@@ -37,15 +37,6 @@ const (
 	headerKey       = "X-Kafka-Key"
 	headerPartition = "X-Kafka-Partition"
 	headerChecksum  = "X-LFS-Checksum"
-
-	// HTTP server timeout defaults (mitigate slowloris attacks)
-	defaultHTTPReadTimeout    = 30 * time.Second
-	defaultHTTPWriteTimeout   = 5 * time.Minute // Large uploads need more time
-	defaultHTTPIdleTimeout    = 60 * time.Second
-	defaultHTTPMaxHeaderBytes = 1 << 20 // 1MB
-
-	// Kafka topic name constraints
-	maxTopicLength = 249
 )
 
 // validTopicPattern matches valid Kafka topic names (alphanumeric, dots, underscores, hyphens)
@@ -55,16 +46,17 @@ func (p *lfsProxy) startHTTPServer(ctx context.Context, addr string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/lfs/produce", p.handleHTTPProduce)
 	srv := &http.Server{
-		Addr:           addr,
-		Handler:        mux,
-		ReadTimeout:    defaultHTTPReadTimeout,
-		WriteTimeout:   defaultHTTPWriteTimeout,
-		IdleTimeout:    defaultHTTPIdleTimeout,
-		MaxHeaderBytes: defaultHTTPMaxHeaderBytes,
+		Addr:              addr,
+		Handler:           mux,
+		ReadTimeout:       p.httpReadTimeout,
+		WriteTimeout:      p.httpWriteTimeout,
+		IdleTimeout:       p.httpIdleTimeout,
+		ReadHeaderTimeout: p.httpHeaderTimeout,
+		MaxHeaderBytes:    p.httpMaxHeaderBytes,
 	}
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), p.httpShutdownTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
@@ -90,7 +82,7 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing topic", http.StatusBadRequest)
 		return
 	}
-	if !isValidTopicName(topic) {
+	if !p.isValidTopicName(topic) {
 		http.Error(w, "invalid topic name", http.StatusBadRequest)
 		return
 	}

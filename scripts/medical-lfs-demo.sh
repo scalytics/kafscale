@@ -16,11 +16,27 @@ E2E_CLIENT_IMAGE="${E2E_CLIENT_IMAGE:-ghcr.io/kafscale/kafscale-e2e-client:lates
 MINIO_BUCKET="${MINIO_BUCKET:-kafscale-lfs}"
 MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minioadmin}"
+MINIO_IMAGE="${MINIO_IMAGE:-minio/minio:latest}"
+MINIO_PORT="${MINIO_PORT:-9000}"
+MINIO_CONSOLE_PORT="${MINIO_CONSOLE_PORT:-9001}"
+LFS_PROXY_KAFKA_PORT="${LFS_PROXY_KAFKA_PORT:-9092}"
+LFS_PROXY_HTTP_PORT="${LFS_PROXY_HTTP_PORT:-8080}"
+LFS_PROXY_METRICS_PORT="${LFS_PROXY_METRICS_PORT:-9095}"
+LFS_PROXY_HTTP_PATH="${LFS_PROXY_HTTP_PATH:-/lfs/produce}"
+LFS_PROXY_S3_REGION="${LFS_PROXY_S3_REGION:-us-east-1}"
+LFS_PROXY_S3_FORCE_PATH_STYLE="${LFS_PROXY_S3_FORCE_PATH_STYLE:-true}"
+LFS_PROXY_S3_ENSURE_BUCKET="${LFS_PROXY_S3_ENSURE_BUCKET:-true}"
+KAFSCALE_S3_NAMESPACE="${KAFSCALE_S3_NAMESPACE:-${MEDICAL_DEMO_NAMESPACE}}"
+
+LFS_PROXY_SERVICE_HOST="${LFS_PROXY_SERVICE_HOST:-lfs-proxy.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local}"
+MINIO_SERVICE_HOST="${MINIO_SERVICE_HOST:-minio.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local}"
+LFS_PROXY_HTTP_URL="${LFS_PROXY_HTTP_URL:-http://${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_HTTP_PORT}${LFS_PROXY_HTTP_PATH}}"
+MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://${MINIO_SERVICE_HOST}:${MINIO_PORT}}"
 
 # Topics for content explosion pattern
-TOPIC_IMAGES="medical-images"
-TOPIC_METADATA="medical-metadata"
-TOPIC_AUDIT="medical-audit"
+TOPIC_IMAGES="${TOPIC_IMAGES:-medical-images}"
+TOPIC_METADATA="${TOPIC_METADATA:-medical-metadata}"
+TOPIC_AUDIT="${TOPIC_AUDIT:-medical-audit}"
 
 echo "=========================================="
 echo "  Medical LFS Demo (E60)"
@@ -52,16 +68,16 @@ metadata:
 spec:
   containers:
   - name: minio
-    image: minio/minio:latest
-    args: ["server", "/data", "--console-address", ":9001"]
+    image: ${MINIO_IMAGE}
+    args: ["server", "/data", "--console-address", ":${MINIO_CONSOLE_PORT}"]
     env:
     - name: MINIO_ROOT_USER
       value: "${MINIO_ROOT_USER}"
     - name: MINIO_ROOT_PASSWORD
       value: "${MINIO_ROOT_PASSWORD}"
     ports:
-    - containerPort: 9000
-    - containerPort: 9001
+    - containerPort: ${MINIO_PORT}
+    - containerPort: ${MINIO_CONSOLE_PORT}
 ---
 apiVersion: v1
 kind: Service
@@ -72,9 +88,9 @@ spec:
     app: minio
   ports:
   - name: api
-    port: 9000
+    port: ${MINIO_PORT}
   - name: console
-    port: 9001
+    port: ${MINIO_CONSOLE_PORT}
 EOF
 kubectl -n "${MEDICAL_DEMO_NAMESPACE}" wait --for=condition=Ready pod/minio --timeout=120s >/dev/null 2>&1 || true
 sleep 5
@@ -107,23 +123,23 @@ spec:
         - name: KAFSCALE_LFS_PROXY_S3_BUCKET
           value: "${MINIO_BUCKET}"
         - name: KAFSCALE_LFS_PROXY_S3_REGION
-          value: "us-east-1"
+          value: "${LFS_PROXY_S3_REGION}"
         - name: KAFSCALE_LFS_PROXY_S3_ENDPOINT
-          value: "http://minio.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local:9000"
+          value: "${MINIO_ENDPOINT}"
         - name: KAFSCALE_LFS_PROXY_S3_ACCESS_KEY
           value: "${MINIO_ROOT_USER}"
         - name: KAFSCALE_LFS_PROXY_S3_SECRET_KEY
           value: "${MINIO_ROOT_PASSWORD}"
         - name: KAFSCALE_LFS_PROXY_S3_FORCE_PATH_STYLE
-          value: "true"
+          value: "${LFS_PROXY_S3_FORCE_PATH_STYLE}"
         - name: KAFSCALE_LFS_PROXY_S3_ENSURE_BUCKET
-          value: "true"
-        - name: KAFSCALE_LFS_PROXY_NAMESPACE
-          value: "${MEDICAL_DEMO_NAMESPACE}"
+          value: "${LFS_PROXY_S3_ENSURE_BUCKET}"
+        - name: KAFSCALE_S3_NAMESPACE
+          value: "${KAFSCALE_S3_NAMESPACE}"
         ports:
-        - containerPort: 9092
-        - containerPort: 8080
-        - containerPort: 9095
+        - containerPort: ${LFS_PROXY_KAFKA_PORT}
+        - containerPort: ${LFS_PROXY_HTTP_PORT}
+        - containerPort: ${LFS_PROXY_METRICS_PORT}
 ---
 apiVersion: v1
 kind: Service
@@ -134,11 +150,11 @@ spec:
     app: lfs-proxy
   ports:
   - name: kafka
-    port: 9092
+    port: ${LFS_PROXY_KAFKA_PORT}
   - name: http
-    port: 8080
+    port: ${LFS_PROXY_HTTP_PORT}
   - name: metrics
-    port: 9095
+    port: ${LFS_PROXY_METRICS_PORT}
 EOF
 kubectl -n "${MEDICAL_DEMO_NAMESPACE}" rollout status deployment/lfs-proxy --timeout=120s >/dev/null 2>&1 || true
 
@@ -188,7 +204,7 @@ for i in $(seq 0 $((MEDICAL_DEMO_BLOB_COUNT - 1))); do
         -H 'X-Kafka-Key: ${patient}' \
         -H 'Content-Type: application/dicom' \
         --data-binary @- \
-        http://lfs-proxy.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local:8080/lfs/produce
+        ${LFS_PROXY_HTTP_URL}
     " >/dev/null 2>&1 &
 done
 
@@ -209,7 +225,7 @@ kubectl -n "${MEDICAL_DEMO_NAMESPACE}" run medical-consumer \
   --restart=Never \
   --image="${E2E_CLIENT_IMAGE}" \
   --env="KAFSCALE_E2E_MODE=consume" \
-  --env="KAFSCALE_E2E_BROKER=lfs-proxy.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local:9092" \
+  --env="KAFSCALE_E2E_BROKER=${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}" \
   --env="KAFSCALE_E2E_TOPIC=${TOPIC_IMAGES}" \
   --env="KAFSCALE_E2E_COUNT=${MEDICAL_DEMO_BLOB_COUNT}" \
   --env="KAFSCALE_E2E_TIMEOUT=30s" \
@@ -276,9 +292,9 @@ echo "=========================================="
 echo "  Medical LFS Demo Complete"
 echo "=========================================="
 echo ""
-echo "LFS Proxy: lfs-proxy.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local:9092"
-echo "HTTP API: lfs-proxy.${MEDICAL_DEMO_NAMESPACE}.svc.cluster.local:8080"
-echo "Blobs stored in: s3://${MINIO_BUCKET}/${MEDICAL_DEMO_NAMESPACE}/"
+echo "LFS Proxy: ${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}"
+echo "HTTP API: ${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_HTTP_PORT}"
+echo "Blobs stored in: s3://${MINIO_BUCKET}/${KAFSCALE_S3_NAMESPACE}/"
 echo ""
 
 # Cleanup

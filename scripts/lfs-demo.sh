@@ -21,6 +21,26 @@ LFS_DEMO_BLOB_SIZE="${LFS_DEMO_BLOB_SIZE:-10485760}"
 LFS_DEMO_BLOB_COUNT="${LFS_DEMO_BLOB_COUNT:-5}"
 LFS_DEMO_TIMEOUT_SEC="${LFS_DEMO_TIMEOUT_SEC:-120}"
 KAFSCALE_S3_NAMESPACE="${KAFSCALE_S3_NAMESPACE:-default}"
+LFS_PROXY_LOG_LEVEL="${LFS_PROXY_LOG_LEVEL:-debug}"
+LFS_PROXY_KAFKA_PORT="${LFS_PROXY_KAFKA_PORT:-9092}"
+LFS_PROXY_HTTP_PORT="${LFS_PROXY_HTTP_PORT:-8080}"
+LFS_PROXY_HEALTH_PORT="${LFS_PROXY_HEALTH_PORT:-9094}"
+LFS_PROXY_METRICS_PORT="${LFS_PROXY_METRICS_PORT:-9095}"
+LFS_PROXY_HTTP_PATH="${LFS_PROXY_HTTP_PATH:-/lfs/produce}"
+LFS_PROXY_SERVICE_HOST="${LFS_PROXY_SERVICE_HOST:-lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local}"
+BROKER_SERVICE_HOST="${BROKER_SERVICE_HOST:-kafscale-broker.${LFS_DEMO_NAMESPACE}.svc.cluster.local}"
+ETCD_SERVICE_HOST="${ETCD_SERVICE_HOST:-kafscale-etcd-client.${LFS_DEMO_NAMESPACE}.svc.cluster.local}"
+MINIO_PORT="${MINIO_PORT:-9000}"
+MINIO_SERVICE_HOST="${MINIO_SERVICE_HOST:-minio.${KAFSCALE_DEMO_NAMESPACE}.svc.cluster.local}"
+MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://${MINIO_SERVICE_HOST}:${MINIO_PORT}}"
+LFS_PROXY_S3_FORCE_PATH_STYLE="${LFS_PROXY_S3_FORCE_PATH_STYLE:-true}"
+LFS_PROXY_S3_ENSURE_BUCKET="${LFS_PROXY_S3_ENSURE_BUCKET:-true}"
+METRICS_LOCAL_PORT="${METRICS_LOCAL_PORT:-19095}"
+BUSYBOX_IMAGE="${BUSYBOX_IMAGE:-busybox:1.36}"
+LFS_PROXY_BACKENDS="${LFS_PROXY_BACKENDS:-${BROKER_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}}"
+LFS_PROXY_ETCD_ENDPOINTS="${LFS_PROXY_ETCD_ENDPOINTS:-http://${ETCD_SERVICE_HOST}:2379}"
+LFS_PROXY_ADVERTISED_HOST="${LFS_PROXY_ADVERTISED_HOST:-${LFS_PROXY_SERVICE_HOST}}"
+LFS_PROXY_ADVERTISED_PORT="${LFS_PROXY_ADVERTISED_PORT:-${LFS_PROXY_KAFKA_PORT}}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 
 cleanup_kubeconfigs() {
@@ -33,7 +53,7 @@ wait_for_dns() {
   local sleep_sec="${3:-3}"
   for _ in $(seq 1 "$attempts"); do
     if kubectl -n "${LFS_DEMO_NAMESPACE}" run "lfs-dns-check-$$" \
-      --restart=Never --rm -i --image=busybox:1.36 \
+      --restart=Never --rm -i --image=${BUSYBOX_IMAGE} \
       --command -- nslookup "${name}" >/dev/null 2>&1; then
       return 0
     fi
@@ -117,39 +137,41 @@ spec:
       - name: lfs-proxy
         image: ${LFS_PROXY_IMAGE}
         ports:
-        - containerPort: 9092
-        - containerPort: 8080
-        - containerPort: 9094
-        - containerPort: 9095
+        - containerPort: ${LFS_PROXY_KAFKA_PORT}
+        - containerPort: ${LFS_PROXY_HTTP_PORT}
+        - containerPort: ${LFS_PROXY_HEALTH_PORT}
+        - containerPort: ${LFS_PROXY_METRICS_PORT}
         env:
         - name: KAFSCALE_LFS_PROXY_LOG_LEVEL
-          value: "debug"
+          value: "${LFS_PROXY_LOG_LEVEL}"
         - name: KAFSCALE_LFS_PROXY_ADDR
-          value: ":9092"
+          value: ":${LFS_PROXY_KAFKA_PORT}"
         - name: KAFSCALE_LFS_PROXY_HTTP_ADDR
-          value: ":8080"
+          value: ":${LFS_PROXY_HTTP_PORT}"
         - name: KAFSCALE_LFS_PROXY_HEALTH_ADDR
-          value: ":9094"
+          value: ":${LFS_PROXY_HEALTH_PORT}"
         - name: KAFSCALE_LFS_PROXY_METRICS_ADDR
-          value: ":9095"
+          value: ":${LFS_PROXY_METRICS_PORT}"
         - name: KAFSCALE_LFS_PROXY_BACKENDS
-          value: "kafscale-broker.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092"
+          value: "${LFS_PROXY_BACKENDS}"
         - name: KAFSCALE_LFS_PROXY_ADVERTISED_HOST
-          value: "lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local"
+          value: "${LFS_PROXY_ADVERTISED_HOST}"
         - name: KAFSCALE_LFS_PROXY_ADVERTISED_PORT
-          value: "9092"
+          value: "${LFS_PROXY_ADVERTISED_PORT}"
         - name: KAFSCALE_LFS_PROXY_ETCD_ENDPOINTS
-          value: "http://kafscale-etcd-client.${LFS_DEMO_NAMESPACE}.svc.cluster.local:2379"
+          value: "${LFS_PROXY_ETCD_ENDPOINTS}"
         - name: KAFSCALE_LFS_PROXY_S3_BUCKET
           value: "${MINIO_BUCKET}"
         - name: KAFSCALE_LFS_PROXY_S3_REGION
           value: "${MINIO_REGION}"
         - name: KAFSCALE_LFS_PROXY_S3_ENDPOINT
-          value: "http://minio.${KAFSCALE_DEMO_NAMESPACE}.svc.cluster.local:9000"
+          value: "${MINIO_ENDPOINT}"
         - name: KAFSCALE_LFS_PROXY_S3_FORCE_PATH_STYLE
-          value: "true"
+          value: "${LFS_PROXY_S3_FORCE_PATH_STYLE}"
         - name: KAFSCALE_LFS_PROXY_S3_ENSURE_BUCKET
-          value: "true"
+          value: "${LFS_PROXY_S3_ENSURE_BUCKET}"
+        - name: KAFSCALE_S3_NAMESPACE
+          value: "${KAFSCALE_S3_NAMESPACE}"
         - name: KAFSCALE_LFS_PROXY_S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:
@@ -163,13 +185,13 @@ spec:
         readinessProbe:
           httpGet:
             path: /readyz
-            port: 9094
+            port: ${LFS_PROXY_HEALTH_PORT}
           initialDelaySeconds: 5
           periodSeconds: 5
         livenessProbe:
           httpGet:
             path: /livez
-            port: 9094
+            port: ${LFS_PROXY_HEALTH_PORT}
           initialDelaySeconds: 10
           periodSeconds: 10
 ---
@@ -182,17 +204,17 @@ spec:
     app: lfs-proxy
   ports:
   - name: kafka
-    port: 9092
-    targetPort: 9092
+    port: ${LFS_PROXY_KAFKA_PORT}
+    targetPort: ${LFS_PROXY_KAFKA_PORT}
   - name: http
-    port: 8080
-    targetPort: 8080
+    port: ${LFS_PROXY_HTTP_PORT}
+    targetPort: ${LFS_PROXY_HTTP_PORT}
   - name: health
-    port: 9094
-    targetPort: 9094
+    port: ${LFS_PROXY_HEALTH_PORT}
+    targetPort: ${LFS_PROXY_HEALTH_PORT}
   - name: metrics
-    port: 9095
-    targetPort: 9095
+    port: ${LFS_PROXY_METRICS_PORT}
+    targetPort: ${LFS_PROXY_METRICS_PORT}
 EOF
 
 # 3. Wait for LFS proxy
@@ -204,7 +226,7 @@ if ! kubectl -n "${LFS_DEMO_NAMESPACE}" rollout status deployment/lfs-proxy --ti
 fi
 
 # Wait for LFS proxy DNS
-wait_for_dns "lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local"
+wait_for_dns "${LFS_PROXY_SERVICE_HOST}"
 
 # 4. Create demo topic via e2e-client probe
 echo "[4/7] Creating demo topic..."
@@ -231,8 +253,8 @@ kubectl -n "${LFS_DEMO_NAMESPACE}" delete pod lfs-topic-create --ignore-not-foun
 kubectl -n "${LFS_DEMO_NAMESPACE}" run lfs-topic-create --restart=Never \
   --image="${E2E_CLIENT_IMAGE}" \
   --env="KAFSCALE_E2E_MODE=probe" \
-  --env="KAFSCALE_E2E_ADDRS=lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092" \
-  --env="KAFSCALE_E2E_BROKER_ADDR=lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092" \
+  --env="KAFSCALE_E2E_ADDRS=${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}" \
+  --env="KAFSCALE_E2E_BROKER_ADDR=${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}" \
   --env="KAFSCALE_E2E_TOPIC=${LFS_DEMO_TOPIC}" \
   --env="KAFSCALE_E2E_PROBE_RETRIES=30" \
   --env="KAFSCALE_E2E_PROBE_SLEEP_MS=1000" \
@@ -253,8 +275,8 @@ kubectl -n "${LFS_DEMO_NAMESPACE}" delete pod lfs-demo-producer --ignore-not-fou
 kubectl -n "${LFS_DEMO_NAMESPACE}" run lfs-demo-producer --restart=Never \
   --image="${E2E_CLIENT_IMAGE}" \
   --env="KAFSCALE_E2E_MODE=produce" \
-  --env="KAFSCALE_E2E_ADDRS=lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092" \
-  --env="KAFSCALE_E2E_BROKER_ADDR=lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092" \
+  --env="KAFSCALE_E2E_ADDRS=${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}" \
+  --env="KAFSCALE_E2E_BROKER_ADDR=${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}" \
   --env="KAFSCALE_E2E_TOPIC=${LFS_DEMO_TOPIC}" \
   --env="KAFSCALE_E2E_COUNT=${LFS_DEMO_BLOB_COUNT}" \
   --env="KAFSCALE_E2E_LFS_BLOB=true" \
@@ -276,7 +298,7 @@ kubectl -n "${LFS_DEMO_NAMESPACE}" delete pod lfs-demo-consumer --ignore-not-fou
 kubectl -n "${LFS_DEMO_NAMESPACE}" run lfs-demo-consumer --restart=Never \
   --image="${E2E_CLIENT_IMAGE}" \
   --env="KAFSCALE_E2E_MODE=consume" \
-  --env="KAFSCALE_E2E_BROKER_ADDR=lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092" \
+  --env="KAFSCALE_E2E_BROKER_ADDR=${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}" \
   --env="KAFSCALE_E2E_TOPIC=${LFS_DEMO_TOPIC}" \
   --env="KAFSCALE_E2E_COUNT=${LFS_DEMO_BLOB_COUNT}" \
   --env="KAFSCALE_E2E_TIMEOUT_SEC=30" \
@@ -386,9 +408,9 @@ if [[ -n "${pointer_meta:-}" ]]; then
   # Install curl and mc, then setup alias (run via exec for reliability)
   kubectl -n "${LFS_DEMO_NAMESPACE}" exec pod/lfs-verify -- sh -c "apk add --no-cache curl >/dev/null 2>&1" >/dev/null 2>&1
   kubectl -n "${LFS_DEMO_NAMESPACE}" exec pod/lfs-verify -- sh -c "curl -sL https://dl.min.io/client/mc/release/linux-amd64/mc -o /tmp/mc && chmod +x /tmp/mc" >/dev/null 2>&1
-  kubectl -n "${LFS_DEMO_NAMESPACE}" exec pod/lfs-verify -- /tmp/mc alias set minio "http://minio.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9000" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null 2>&1
+  kubectl -n "${LFS_DEMO_NAMESPACE}" exec pod/lfs-verify -- /tmp/mc alias set minio "${MINIO_ENDPOINT}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null 2>&1
 
-  minio_endpoint="http://minio.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9000"
+  minio_endpoint="${MINIO_ENDPOINT}"
 
   while IFS=$'\t' read -r key expected_sha bucket; do
     [[ -z "${key}" ]] && continue
@@ -441,12 +463,12 @@ echo "S3 blobs found: ${blob_count}"
 
 # 8. Show metrics
 echo "[8/8] LFS Proxy Metrics:"
-kubectl -n "${LFS_DEMO_NAMESPACE}" port-forward svc/lfs-proxy 19095:9095 &
+kubectl -n "${LFS_DEMO_NAMESPACE}" port-forward svc/lfs-proxy ${METRICS_LOCAL_PORT}:${LFS_PROXY_METRICS_PORT} &
 PF_PID=$!
 sleep 3
 echo ""
 echo "--- LFS Metrics ---"
-curl -s http://localhost:19095/metrics 2>/dev/null | grep -E "^kafscale_lfs" || echo "(no LFS metrics yet)"
+curl -s http://localhost:${METRICS_LOCAL_PORT}/metrics 2>/dev/null | grep -E "^kafscale_lfs" || echo "(no LFS metrics yet)"
 echo ""
 kill $PF_PID 2>/dev/null || true
 
@@ -455,14 +477,14 @@ echo "=========================================="
 echo " LFS Demo Complete!"
 echo "=========================================="
 echo ""
-echo "LFS Proxy: lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092"
+echo "LFS Proxy: ${LFS_PROXY_SERVICE_HOST}:${LFS_PROXY_KAFKA_PORT}"
 echo "Blobs stored in: s3://${MINIO_BUCKET}/${KAFSCALE_S3_NAMESPACE}/${LFS_DEMO_TOPIC}/lfs/"
 echo ""
 echo "To access LFS proxy from local machine:"
-echo "  kubectl -n ${LFS_DEMO_NAMESPACE} port-forward svc/lfs-proxy 9092:9092"
+echo "  kubectl -n ${LFS_DEMO_NAMESPACE} port-forward svc/lfs-proxy ${LFS_PROXY_KAFKA_PORT}:${LFS_PROXY_KAFKA_PORT}"
 echo ""
 echo "To verify blobs from local machine:"
-echo "  kubectl -n ${LFS_DEMO_NAMESPACE} port-forward svc/minio 9000:9000 &"
+echo "  kubectl -n ${LFS_DEMO_NAMESPACE} port-forward svc/minio ${MINIO_PORT}:${MINIO_PORT} &"
 echo "  kubectl -n ${LFS_DEMO_NAMESPACE} logs pod/lfs-demo-consumer > records.txt"
 echo "  scripts/verify-lfs-urls.sh records.txt"
 echo ""

@@ -70,6 +70,7 @@ addons/processors/**/coverage*.out
 # Environment/config
 .env
 .env.*
+!.env.example
 commercial-saas.md
 secrets/*.yaml
 secrets/*.json
@@ -98,6 +99,5 @@ kubeconfig*
 
 # Ignore custom Agents
 examples/AGENTS.md
-AGENTS.md 
 
 

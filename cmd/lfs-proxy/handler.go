@@ -105,7 +105,7 @@ func (p *lfsProxy) isS3Healthy() bool {
 
 func (p *lfsProxy) startS3HealthCheck(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
-		interval = 30 * time.Second
+		interval = time.Duration(defaultS3HealthIntervalSec) * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	go func() {
@@ -167,15 +167,18 @@ func (p *lfsProxy) cacheFresh() bool {
 	return time.Since(time.Unix(0, last)) <= p.cacheTTL
 }
 
-func (p *lfsProxy) startBackendRefresh(ctx context.Context, backoff time.Duration) {
+func (p *lfsProxy) startBackendRefresh(ctx context.Context, backoff time.Duration, interval time.Duration) {
 	if p.store == nil || len(p.backends) > 0 {
 		p.logger.Debug("backend refresh disabled", "hasStore", p.store != nil, "staticBackends", len(p.backends))
 		return
 	}
 	if backoff <= 0 {
-		backoff = 500 * time.Millisecond
+		backoff = time.Duration(defaultBackendBackoffMs) * time.Millisecond
 	}
-	ticker := time.NewTicker(3 * time.Second)
+	if interval <= 0 {
+		interval = time.Duration(defaultBackendRefreshIntervalSec) * time.Second
+	}
+	ticker := time.NewTicker(interval)
 	go func() {
 		defer ticker.Stop()
 		for {
@@ -224,10 +227,20 @@ func (p *lfsProxy) startHealthServer(ctx context.Context, addr string) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadTimeout:       p.httpReadTimeout,
+		WriteTimeout:      p.httpWriteTimeout,
+		IdleTimeout:       p.httpIdleTimeout,
+		ReadHeaderTimeout: p.httpHeaderTimeout,
+		MaxHeaderBytes:    p.httpMaxHeaderBytes,
+	}
 	go func() {
 		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), p.httpShutdownTimeout)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
 	}()
 	go func() {
 		p.logger.Info("lfs proxy health listening", "addr", addr)
@@ -630,7 +643,7 @@ func (p *lfsProxy) connectBackend(ctx context.Context) (net.Conn, string, error)
 	}
 	backoff := time.Duration(envInt("KAFSCALE_LFS_PROXY_BACKEND_BACKOFF_MS", 500)) * time.Millisecond
 	if backoff <= 0 {
-		backoff = 500 * time.Millisecond
+		backoff = time.Duration(defaultBackendBackoffMs) * time.Millisecond
 	}
 	var lastErr error
 	for attempt := 0; attempt < retries; attempt++ {
