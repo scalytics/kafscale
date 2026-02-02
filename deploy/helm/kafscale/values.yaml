@@ -163,9 +163,9 @@ lfsProxy:
       enabled: false
       labels: {}
   http:
-    enabled: true
+    enabled: false  # Disabled by default for security; enable with apiKey set
     port: 8080
-    apiKey: ""
+    apiKey: ""  # Required when http.enabled=true
   backendCacheTTLSeconds: 60
   advertisedHost: ""
   advertisedPort: 9092
@@ -178,8 +178,10 @@ lfsProxy:
     bucket: ""
     region: ""
     endpoint: ""
-    accessKey: ""
-    secretKey: ""
+    # Credentials: use existingSecret (preferred) or inline values (not recommended)
+    existingSecret: ""  # Name of existing Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY keys
+    accessKey: ""       # Deprecated: use existingSecret instead
+    secretKey: ""       # Deprecated: use existingSecret instead
     sessionToken: ""
     forcePathStyle: false
     ensureBucket: false
@@ -191,7 +193,7 @@ lfsProxy:
   tolerations: []
   affinity: {}
   service:
-    type: LoadBalancer
+    type: ClusterIP  # Changed from LoadBalancer for security; use Ingress for external access
     port: 9092
     annotations: {}
     loadBalancerSourceRanges: []

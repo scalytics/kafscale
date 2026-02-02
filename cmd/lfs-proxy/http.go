@@ -17,9 +17,11 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -35,15 +37,36 @@ const (
 	headerKey       = "X-Kafka-Key"
 	headerPartition = "X-Kafka-Partition"
 	headerChecksum  = "X-LFS-Checksum"
+
+	// HTTP server timeout defaults (mitigate slowloris attacks)
+	defaultHTTPReadTimeout    = 30 * time.Second
+	defaultHTTPWriteTimeout   = 5 * time.Minute // Large uploads need more time
+	defaultHTTPIdleTimeout    = 60 * time.Second
+	defaultHTTPMaxHeaderBytes = 1 << 20 // 1MB
+
+	// Kafka topic name constraints
+	maxTopicLength = 249
 )
+
+// validTopicPattern matches valid Kafka topic names (alphanumeric, dots, underscores, hyphens)
+var validTopicPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 func (p *lfsProxy) startHTTPServer(ctx context.Context, addr string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/lfs/produce", p.handleHTTPProduce)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:           addr,
+		Handler:        mux,
+		ReadTimeout:    defaultHTTPReadTimeout,
+		WriteTimeout:   defaultHTTPWriteTimeout,
+		IdleTimeout:    defaultHTTPIdleTimeout,
+		MaxHeaderBytes: defaultHTTPMaxHeaderBytes,
+	}
 	go func() {
 		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
 	}()
 	go func() {
 		p.logger.Info("lfs proxy http listening", "addr", addr)
@@ -65,6 +88,10 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 	topic := strings.TrimSpace(r.Header.Get(headerTopic))
 	if topic == "" {
 		http.Error(w, "missing topic", http.StatusBadRequest)
+		return
+	}
+	if !isValidTopicName(topic) {
+		http.Error(w, "invalid topic name", http.StatusBadRequest)
 		return
 	}
 
@@ -188,5 +215,18 @@ func (p *lfsProxy) validateHTTPAPIKey(r *http.Request) bool {
 			key = strings.TrimSpace(auth[len("bearer "):])
 		}
 	}
-	return key != "" && key == p.httpAPIKey
+	if key == "" {
+		return false
+	}
+	// Use constant-time comparison to prevent timing attacks
+	return subtle.ConstantTimeCompare([]byte(key), []byte(p.httpAPIKey)) == 1
+}
+
+// isValidTopicName validates a Kafka topic name.
+// Topics must be 1-249 characters, containing only alphanumeric, dots, underscores, or hyphens.
+func isValidTopicName(topic string) bool {
+	if len(topic) == 0 || len(topic) > maxTopicLength {
+		return false
+	}
+	return validTopicPattern.MatchString(topic)
 }
