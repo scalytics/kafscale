@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: proto build test tidy lint generate build-sdk docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-lfs-proxy-broker test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo medical-lfs-demo video-lfs-demo industrial-lfs-demo platform-demo idoc-demo act-runnable help clean-kind-all
+.PHONY: proto build test tidy lint generate build-sdk docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-lfs-proxy-broker test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo lfs-demo-medical lfs-demo-video lfs-demo-industrial platform-demo lfs-demo-idoc act-runnable help clean-kind-all
 
 REGISTRY ?= ghcr.io/kafscale
 STAMP_DIR ?= .build
@@ -77,9 +77,10 @@ KAFSCALE_DEMO_ETCD_INMEM ?= 1
 KAFSCALE_DEMO_ETCD_REPLICAS ?= 3
 BROKER_PORT ?= 39092
 BROKER_PORTS ?= 39092 39093 39094
-SDK_JAVA_BUILD_CMD ?= mvn -q -DskipTests package
+SDK_JAVA_BUILD_CMD ?= mvn -DskipTests clean package
 SDK_JS_BUILD_CMD ?= npm install && npm run build
 SDK_PY_BUILD_CMD ?= python -m build
+SKIP_JS_SDK ?= 1
 
 proto: ## Generate protobuf + gRPC stubs
 	buf generate
@@ -92,8 +93,13 @@ build: ## Build all binaries
 build-sdk: ## Build all LFS client SDKs
 	@echo "Building Java SDK..."
 	@cd lfs-client-sdk/java && $(SDK_JAVA_BUILD_CMD)
-	@echo "Building JS SDK..."
-	@cd lfs-client-sdk/js && $(SDK_JS_BUILD_CMD)
+	@test -d lfs-client-sdk/java/target || { echo "Java SDK target/ missing"; exit 1; }
+	@if [ "$(SKIP_JS_SDK)" = "1" ]; then \
+		echo "Skipping JS SDK build (SKIP_JS_SDK=1)"; \
+	else \
+		echo "Building JS SDK..."; \
+		cd lfs-client-sdk/js && $(SDK_JS_BUILD_CMD); \
+	fi
 	@echo "Building Python SDK..."
 	@cd lfs-client-sdk/python && $(SDK_PY_BUILD_CMD)
 
@@ -586,10 +592,10 @@ lfs-demo: demo-platform-bootstrap ## Run the LFS proxy demo on kind.
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
 	bash scripts/lfs-demo.sh
 
-medical-lfs-demo: KAFSCALE_DEMO_PROXY=0
-medical-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
-medical-lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
-medical-lfs-demo: demo-platform-bootstrap ## Run the Medical LFS demo (E60) - healthcare imaging with content explosion.
+lfs-demo-medical: KAFSCALE_DEMO_PROXY=0
+lfs-demo-medical: KAFSCALE_DEMO_CONSOLE=0
+lfs-demo-medical: KAFSCALE_DEMO_BROKER_REPLICAS=1
+lfs-demo-medical: demo-platform-bootstrap ## Run the Medical LFS demo (E60) - healthcare imaging with content explosion.
 	$(MAKE) docker-build-lfs-proxy
 	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
 	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
@@ -598,12 +604,12 @@ medical-lfs-demo: demo-platform-bootstrap ## Run the Medical LFS demo (E60) - he
 	MINIO_BUCKET=$(MINIO_BUCKET) \
 	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
-	bash scripts/medical-lfs-demo.sh
+	bash scripts/lfs-demo-medical.sh
 
-video-lfs-demo: KAFSCALE_DEMO_PROXY=0
-video-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
-video-lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
-video-lfs-demo: demo-platform-bootstrap ## Run the Video LFS demo (E61) - media streaming with content explosion.
+lfs-demo-video: KAFSCALE_DEMO_PROXY=0
+lfs-demo-video: KAFSCALE_DEMO_CONSOLE=0
+lfs-demo-video: KAFSCALE_DEMO_BROKER_REPLICAS=1
+lfs-demo-video: demo-platform-bootstrap ## Run the Video LFS demo (E61) - media streaming with content explosion.
 	$(MAKE) docker-build-lfs-proxy
 	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
 	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
@@ -612,12 +618,12 @@ video-lfs-demo: demo-platform-bootstrap ## Run the Video LFS demo (E61) - media 
 	MINIO_BUCKET=$(MINIO_BUCKET) \
 	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
-	bash scripts/video-lfs-demo.sh
+	bash scripts/lfs-demo-video.sh
 
-industrial-lfs-demo: KAFSCALE_DEMO_PROXY=0
-industrial-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
-industrial-lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
-industrial-lfs-demo: demo-platform-bootstrap ## Run the Industrial LFS demo (E62) - mixed telemetry + images.
+lfs-demo-industrial: KAFSCALE_DEMO_PROXY=0
+lfs-demo-industrial: KAFSCALE_DEMO_CONSOLE=0
+lfs-demo-industrial: KAFSCALE_DEMO_BROKER_REPLICAS=1
+lfs-demo-industrial: demo-platform-bootstrap ## Run the Industrial LFS demo (E62) - mixed telemetry + images.
 	$(MAKE) docker-build-lfs-proxy
 	KUBECONFIG=$(KAFSCALE_KIND_KUBECONFIG) \
 	KAFSCALE_KIND_CLUSTER=$(KAFSCALE_KIND_CLUSTER) \
@@ -626,7 +632,7 @@ industrial-lfs-demo: demo-platform-bootstrap ## Run the Industrial LFS demo (E62
 	MINIO_BUCKET=$(MINIO_BUCKET) \
 	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
-	bash scripts/industrial-lfs-demo.sh
+	bash scripts/lfs-demo-industrial.sh
 
 platform-demo: demo-platform ## Alias for demo-platform.
 
@@ -663,7 +669,7 @@ act-runnable: ## Run runnable GitHub Actions locally (ci.yml, docker.yml)
 
 IDOC_EXPLODE_BIN ?= bin/idoc-explode
 
-idoc-demo: ## Run IDoc explode demo (writes topic JSONL files)
+lfs-demo-idoc: ## Run IDoc explode demo (writes topic JSONL files)
 	@mkdir -p bin
 	go build -o $(IDOC_EXPLODE_BIN) ./cmd/idoc-explode
 	./scripts/idoc-explode-demo.sh

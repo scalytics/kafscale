@@ -374,15 +374,15 @@ lfsProxy:
 | J2-010 | Add integration tests | P1 | [ ] | TestContainers + MinIO |
 
 #### JavaScript/TypeScript SDK
-Deferred: JS SDK work paused; resume after Go/Java/Python parity.
+Target: March 2026 (low priority).
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| JS2-001 | Create SDK scaffold | P3 | [ ] | `lfs-client-sdk/js/` (deferred low priority) |
-| JS2-002 | Consumer helper | P3 | [ ] | Detect envelope + S3 fetch (deferred low priority) |
-| JS2-003 | Producer helper | P3 | [ ] | HTTP `/lfs/produce` (deferred low priority) |
-| JS2-004 | Types + examples | P3 | [ ] | TypeScript types (deferred low priority) |
-| JS2-005 | Integration tests | P3 | [ ] | MinIO + local proxy (deferred low priority) |
+| JS2-001 | Create SDK scaffold | P3 | [ ] | `lfs-client-sdk/js/` (target March 2026, low priority) |
+| JS2-002 | Consumer helper | P3 | [ ] | Detect envelope + S3 fetch (target March 2026, low priority) |
+| JS2-003 | Producer helper | P3 | [ ] | HTTP `/lfs/produce` (target March 2026, low priority) |
+| JS2-004 | Types + examples | P3 | [ ] | TypeScript types (target March 2026, low priority) |
+| JS2-005 | Integration tests | P3 | [ ] | MinIO + local proxy (target March 2026, low priority) |
 
 #### Python SDK
 
@@ -780,3 +780,25 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 | Phase 2 | ✅ | HTTP timeouts, topic validation |
 | Phase 3 | ✅ | Constant-time API key compare, header allowlist |
 | Phase 4 | ✅ | TLS/SASL options |
+
+### 6.6 LFS XML (IDoc) Demo
+
+**Goal:** Demonstrate LFS pointer ingestion for XML (IDoc), explode to JSON topics, and validate end-to-end.
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| DEMO-IDOC-001 | Rename Make target to `lfs-demo-idoc` | P0 | [x] | Replace `idoc-demo` |
+| DEMO-IDOC-002 | Create E70/E71 LFS SDK demos | P1 | [ ] | Java + Python SDK demos |
+| DEMO-IDOC-003 | Add IDoc LFS demo README | P1 | [ ] | Run order + port-forwards |
+| DEMO-IDOC-004 | Produce LFS XML to `idoc-raw.<type>` | P1 | [ ] | LFS proxy + XML payload |
+| DEMO-IDOC-005 | Run `idoc-explode` on pointer topic | P1 | [ ] | Use `cmd/idoc-explode` |
+| DEMO-IDOC-006 | Validate exploded topics | P2 | [ ] | `idoc-headers`, `idoc-items`, etc. |
+| DEMO-IDOC-007 | Document cleanup steps | P2 | [ ] | Keep cluster running |
+
+**Run Plan (LFS XML Story):**
+1. Terminal A: `make lfs-demo` (keep running).
+2. Terminal B: port-forward LFS proxy, broker, MinIO.
+3. Terminal C: upload XML via LFS proxy to `idoc-raw.<type>`.
+4. Terminal C: run `make lfs-demo-idoc` to explode XML into JSON topics.
+5. Verify `idoc-headers`, `idoc-items`, `idoc-partners`, `idoc-dates`, `idoc-status` topics.
+
