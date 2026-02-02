@@ -9,18 +9,21 @@ This file tracks security hardening work for recent LFS proxy additions and prov
 | Setting | Default | Risk | Location |
 |---------|---------|------|----------|
 | `lfsProxy.enabled` | `false` | ✅ Safe | values.yaml:142 |
-| `lfsProxy.service.type` | `LoadBalancer` | ⚠️ **PUBLIC** | values.yaml:194 |
-| `lfsProxy.http.enabled` | `true` | ⚠️ HTTP on | values.yaml:166 |
-| `lfsProxy.http.apiKey` | `""` (empty) | ⚠️ **NO AUTH** | values.yaml:168 |
-| `lfsProxy.s3.accessKey` | `""` (plaintext field) | ⚠️ No Secret | values.yaml:181 |
-| `lfsProxy.s3.secretKey` | `""` (plaintext field) | ⚠️ No Secret | values.yaml:182 |
+| `lfsProxy.service.type` | `ClusterIP` | ✅ Internal | values.yaml:199 |
+| `lfsProxy.http.enabled` | `false` | ✅ HTTP off | values.yaml:168 |
+| `lfsProxy.http.apiKey` | `""` (empty) | ⚠️ Required when HTTP enabled | values.yaml:170 |
+| `lfsProxy.s3.existingSecret` | `""` | ⚠️ Must be set for production | values.yaml:185 |
+| `lfsProxy.s3.accessKey` | `""` (deprecated) | ⚠️ Plaintext if used | values.yaml:186 |
+| `lfsProxy.s3.secretKey` | `""` (deprecated) | ⚠️ Plaintext if used | values.yaml:187 |
+| `lfsProxy.etcd.existingSecret` | `""` | ⚠️ Must be set for production | values.yaml:176 |
+| `lfsProxy.etcd.username/password` | `""` | ⚠️ Plaintext if used | values.yaml:177-178 |
 
 ### Ports Exposed
 
 | Port | Purpose | Exposed via Service |
 |------|---------|---------------------|
-| 9092 | Kafka protocol | Yes (LoadBalancer) |
-| 8080 | HTTP /lfs/produce | Yes (when http.enabled) |
+| 9092 | Kafka protocol | Yes (ClusterIP) |
+| 8080 | HTTP /lfs/produce | No (disabled by default) |
 | 9094 | Health (/livez, /readyz) | No |
 | 9095 | Metrics (/metrics) | No |
 
@@ -28,16 +31,17 @@ This file tracks security hardening work for recent LFS proxy additions and prov
 
 | Source | Method | Secure? |
 |--------|--------|---------|
-| Helm values.yaml | Plaintext `s3.accessKey`, `s3.secretKey` | ❌ No |
+| Helm values.yaml | Plaintext `s3.accessKey`, `s3.secretKey`, `etcd.username`, `etcd.password` | ❌ No |
+| Helm values.yaml | `existingSecret` for S3/etcd | ✅ Yes |
 | Demo script (lfs-demo.sh) | Kubernetes Secret with `secretKeyRef` | ✅ Yes |
 
 ### HTTP Server Security
 
 | Feature | Status | Risk |
 |---------|--------|------|
-| Read/Write timeouts | Not configured | ⚠️ Slowloris |
-| API key comparison | Simple `==` | ⚠️ Timing attack |
-| Topic header validation | None | ⚠️ Path injection |
+| Read/Write timeouts | Configured | ✅ Mitigated |
+| API key comparison | Constant-time | ✅ Mitigated |
+| Topic header validation | Enforced | ✅ Mitigated |
 
 Acceptance criteria:
 - [x] Documented current defaults for HTTP/metrics/health and service type.
@@ -52,30 +56,31 @@ Acceptance criteria:
 **Changes Made:**
 - `values.yaml`: `lfsProxy.http.enabled` changed from `true` → `false`
 - `values.yaml`: `lfsProxy.service.type` changed from `LoadBalancer` → `ClusterIP`
-- `values.yaml`: Added `lfsProxy.s3.existingSecret` field for Secret-based credentials
-- `lfs-proxy-deployment.yaml`: Added `secretKeyRef` support when `existingSecret` is set
+- `values.yaml`: Added `lfsProxy.s3.existingSecret` and `lfsProxy.etcd.existingSecret` for Secret-based credentials
+- `lfs-proxy-deployment.yaml`: Added `secretKeyRef` support when `existingSecret` is set (S3 + etcd)
 
 Acceptance criteria:
 - [x] Helm defaults: `lfsProxy.http.enabled=false` or enforce non-empty `apiKey`.
 - [x] Helm defaults: `lfsProxy.service.type=ClusterIP`.
-- [x] Helm templates support `existingSecret` (or create Secret) for S3 + etcd creds.
+- [x] Helm templates support `existingSecret` for S3 + etcd creds.
 - [x] Demo script uses Secret for credentials, not inline values.
 
 ## Phase 2 - Medium Priority (Runtime Hardening) ✅ COMPLETE
 
 - [x] Add HTTP server timeouts (read, header, write, idle) to mitigate slowloris.
 - [x] Validate `X-Kafka-Topic` header (length + allowed charset) before building S3 key.
-- [x] Track orphan objects on checksum mismatch and decide cleanup policy (delete or quarantine).
+- [x] Delete objects on checksum mismatch; track orphan if delete fails.
 
 **Changes Made (http.go):**
 - Added `ReadTimeout: 30s`, `WriteTimeout: 5m`, `IdleTimeout: 60s`, `MaxHeaderBytes: 1MB`
 - Added `isValidTopicName()` function validating: 1-249 chars, alphanumeric/dots/underscores/hyphens only
 - Returns 400 "invalid topic name" for malformed topics
+- Checksum mismatch deletes uploaded object; orphan tracked if delete fails
 
 Acceptance criteria:
 - [x] HTTP server timeouts configured (sane defaults + env overrides).
 - [x] Invalid topic header returns 400 with clear error message.
-- [x] Checksum mismatch increments orphan metric and logs orphan key (already implemented).
+- [x] Checksum mismatch deletes object; failed delete is tracked as orphan.
 
 ## Phase 2.5 - Integrity Options ✅ COMPLETE
 

@@ -84,6 +84,7 @@ console:
     password: ""
   etcdEndpoints: []
   etcd:
+    existingSecret: ""  # Name of existing Secret with ETCD_USERNAME and ETCD_PASSWORD keys
     username: ""
     password: ""
   metrics:
@@ -124,6 +125,7 @@ proxy:
   advertisedPort: 9092
   etcdEndpoints: []
   etcd:
+    existingSecret: ""  # Name of existing Secret with ETCD_USERNAME and ETCD_PASSWORD keys
     username: ""
     password: ""
   backends: []
@@ -171,6 +173,7 @@ lfsProxy:
   advertisedPort: 9092
   etcdEndpoints: []
   etcd:
+    existingSecret: ""  # Name of existing Secret with ETCD_USERNAME and ETCD_PASSWORD keys
     username: ""
     password: ""
   backends: []
@@ -216,6 +219,7 @@ mcp:
     token: ""
   etcdEndpoints: []
   etcd:
+    existingSecret: ""  # Name of existing Secret with ETCD_USERNAME and ETCD_PASSWORD keys
     username: ""
     password: ""
   metrics:

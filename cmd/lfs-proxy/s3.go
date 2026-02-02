@@ -50,6 +50,7 @@ type s3API interface {
 	CompleteMultipartUpload(ctx context.Context, params *s3.CompleteMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error)
 	AbortMultipartUpload(ctx context.Context, params *s3.AbortMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error)
 	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
 	CreateBucket(ctx context.Context, params *s3.CreateBucketInput, optFns ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
 }
@@ -368,6 +369,17 @@ func (u *s3Uploader) abortUpload(ctx context.Context, key, uploadID string) erro
 		Bucket:   aws.String(u.bucket),
 		Key:      aws.String(key),
 		UploadId: aws.String(uploadID),
+	})
+	return err
+}
+
+func (u *s3Uploader) DeleteObject(ctx context.Context, key string) error {
+	if key == "" {
+		return errors.New("s3 key required")
+	}
+	_, err := u.api.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(u.bucket),
+		Key:    aws.String(key),
 	})
 	return err
 }

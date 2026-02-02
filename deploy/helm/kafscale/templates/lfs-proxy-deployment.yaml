@@ -78,6 +78,18 @@ spec:
             - name: KAFSCALE_LFS_PROXY_ETCD_ENDPOINTS
               value: "{{ join "," .Values.lfsProxy.etcdEndpoints }}"
 {{- end }}
+{{- if .Values.lfsProxy.etcd.existingSecret }}
+            - name: KAFSCALE_LFS_PROXY_ETCD_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.lfsProxy.etcd.existingSecret }}
+                  key: ETCD_USERNAME
+            - name: KAFSCALE_LFS_PROXY_ETCD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.lfsProxy.etcd.existingSecret }}
+                  key: ETCD_PASSWORD
+{{- else }}
 {{- if .Values.lfsProxy.etcd.username }}
             - name: KAFSCALE_LFS_PROXY_ETCD_USERNAME
               value: "{{ .Values.lfsProxy.etcd.username }}"
@@ -85,6 +97,7 @@ spec:
 {{- if .Values.lfsProxy.etcd.password }}
             - name: KAFSCALE_LFS_PROXY_ETCD_PASSWORD
               value: "{{ .Values.lfsProxy.etcd.password }}"
+{{- end }}
 {{- end }}
 {{- if .Values.lfsProxy.backends }}
             - name: KAFSCALE_LFS_PROXY_BACKENDS

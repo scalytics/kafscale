@@ -137,6 +137,12 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if checksumHeader != "" && checksum != "" && !strings.EqualFold(checksumHeader, checksum) {
+		if err := p.s3Uploader.DeleteObject(r.Context(), objectKey); err != nil {
+			p.trackOrphans([]orphanInfo{{Topic: topic, Key: objectKey}})
+			p.metrics.IncRequests(topic, "error", "lfs")
+			http.Error(w, "checksum mismatch; delete failed", http.StatusBadRequest)
+			return
+		}
 		p.metrics.IncRequests(topic, "error", "lfs")
 		http.Error(w, (&lfs.ChecksumError{Expected: checksumHeader, Actual: checksum}).Error(), http.StatusBadRequest)
 		return
@@ -215,6 +221,7 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(env)
 }
+
 
 func (p *lfsProxy) validateHTTPAPIKey(r *http.Request) bool {
 	if r == nil {

@@ -149,7 +149,7 @@ Result: The consumer gets the original blob payload.
 ## Failure Modes and Signals
 
 - **Upload errors**: The proxy increments `kafscale_lfs_proxy_s3_errors_total` and returns errors to the client.
-- **Checksum mismatch**: The proxy returns an error. The object has already been uploaded, so it may be orphaned.
+- **Checksum mismatch**: The proxy returns an error and attempts to delete the uploaded object. If delete fails, it is tracked as an orphan.
 - **Backend failures**: Uploaded objects are tracked as orphans when produce forwarding fails.
 - **Metrics**: `kafscale_lfs_proxy_requests_total{topic,status,type}` and upload duration/bytes report LFS activity.
 
@@ -198,12 +198,20 @@ Result: The consumer gets the original blob payload.
 
 ## Checksum Algorithm Options
 
-To support workloads that prefer faster corruption detection, the proxy accepts
-non-cryptographic checksums (e.g., CRC32) or MD5. The default remains SHA-256 for integrity.
+### Why configurable checksums
+
+Configurable checksums let you trade off integrity guarantees vs. CPU cost based on workload:
+
+- **sha256**: strongest integrity; recommended default for security-sensitive data.
+- **md5**: faster and widely supported; useful for legacy systems or interoperability.
+- **crc32**: very fast corruption detection for high-throughput pipelines.
+- **none**: skips checksum validation when the transport/storage already guarantees integrity.
+
+The proxy keeps SHA-256 as the default and preserves backward compatibility by retaining the `sha256` field in envelopes.
 
 - **Kafka header**: `LFS_BLOB_ALG` (optional)
 - **HTTP header**: `X-LFS-Checksum-Alg` (optional)
-- **Envelope fields** (planned): `checksum_alg`, `checksum` (with `sha256` preserved for compatibility)
+- **Envelope fields**: `checksum_alg`, `checksum` (with `sha256` preserved for compatibility)
 
 
 ## Backend TLS/SASL

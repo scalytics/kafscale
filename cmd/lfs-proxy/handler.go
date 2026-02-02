@@ -580,6 +580,10 @@ func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.R
 						return rewriteResult{}, err
 					}
 					if checksumHeader != "" && checksum != "" && !strings.EqualFold(checksumHeader, checksum) {
+						if err := p.s3Uploader.DeleteObject(ctx, key); err != nil {
+							p.trackOrphans([]orphanInfo{{Topic: topic.Name, Key: key}})
+							return rewriteResult{}, fmt.Errorf("checksum mismatch; delete failed: %w", err)
+						}
 						return rewriteResult{}, &lfs.ChecksumError{Expected: checksumHeader, Actual: checksum}
 					}
 					env := lfs.Envelope{

@@ -31,6 +31,10 @@ func (fakeS3API) AbortMultipartUpload(ctx context.Context, params *s3.AbortMulti
 func (fakeS3API) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	return &s3.PutObjectOutput{}, nil
 }
+
+func (fakeS3API) DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+	return &s3.DeleteObjectOutput{}, nil
+}
 func (fakeS3API) HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
 	return &s3.HeadBucketOutput{}, nil
 }
@@ -55,6 +59,10 @@ func (f failingS3API) AbortMultipartUpload(ctx context.Context, params *s3.Abort
 	return nil, f.err
 }
 func (f failingS3API) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	return nil, f.err
+}
+
+func (f failingS3API) DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	return nil, f.err
 }
 func (f failingS3API) HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {

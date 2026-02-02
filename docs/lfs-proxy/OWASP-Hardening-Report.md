@@ -16,6 +16,7 @@ Public endpoints include any externally reachable HTTP, gRPC, or Kafka endpoints
 - Auth: Optional API key (when configured) — risk if exposed without key.
 - Input validation: Topic name validation enforced.
 - Integrity: Checksum algorithm configurable (sha256/md5/crc32/none); default sha256.
+- Integrity: Checksum mismatch deletes uploaded object; orphan tracked if delete fails.
 - Transport: Optional in-process TLS supported; otherwise rely on ingress/TLS termination.
 - Size limits: Enforced via max blob size.
 - Rate limiting: Not implemented.
