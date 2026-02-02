@@ -341,6 +341,8 @@ lfsProxy:
 
 ### 3.1 Explode Processor (Optional)
 
+**Priority:** Deferred (lowest priority)
+
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
 | E3-001 | Design as separate service | P2 | [ ] | `cmd/lfs-explode/` |
@@ -353,9 +355,9 @@ lfsProxy:
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| OP-001 | Add LfsProxySpec to CRD | P3 | [ ] | `api/v1alpha1/kafscalecluster_types.go` |
-| OP-002 | Add reconcileLfsProxy() | P3 | [ ] | `pkg/operator/cluster_controller.go` |
-| OP-003 | Create lfs-proxy Deployment from CRD | P3 | [ ] | Dynamic deployment |
+| OP-001 | Add LfsProxySpec to CRD | P3 | [x] | `api/v1alpha1/kafscalecluster_types.go` |
+| OP-002 | Add reconcileLfsProxy() | P3 | [x] | `pkg/operator/cluster_controller.go` |
+| OP-003 | Create lfs-proxy Deployment from CRD | P3 | [x] | Dynamic deployment |
 
 ---
 
@@ -460,6 +462,8 @@ mappings:
 ---
 
 ## Phase 5: Alternative Projections
+
+**Priority:** Low (post-MVP / after Phase 4).
 
 **Goal:** Enable LFS data projection to formats beyond Iceberg for diverse analytics ecosystems.
 
@@ -699,7 +703,7 @@ mappings:
 - [x] MinIO S3 testing approach confirmed
 - [x] Header name decided: `LFS_BLOB`
 - [x] S3 key format: `{namespace}/{topic}/lfs/{yyyy}/{mm}/{dd}/obj-{uuid}`
-- [ ] Determine if lfs-proxy should be operator-managed (Phase 3)
+- [x] Determine if lfs-proxy should be operator-managed (Phase 3)
 - [x] AWS credentials handling in Helm (Secret refs vs env vars) - `existingSecret` support added
 - [ ] Concurrency limit for LFS resolution in Processors (Phase 4)
 - [ ] Memory limits for hybrid mode blob inlining (Phase 4)
@@ -708,7 +712,7 @@ mappings:
 
 ## Security Hardening (2026-02-02)
 
-All security hardening phases complete. See [security-tasks.md](../../../security-tasks.md) for details.
+All security hardening phases complete. See [security-tasks.md](../../../docs/lfs-proxy/security-tasks.md) for details.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -716,4 +720,4 @@ All security hardening phases complete. See [security-tasks.md](../../../securit
 | Phase 1 | ✅ | ClusterIP default, HTTP disabled, existingSecret support |
 | Phase 2 | ✅ | HTTP timeouts, topic validation |
 | Phase 3 | ✅ | Constant-time API key compare, header allowlist |
-| Phase 4 | Future | TLS/SASL options |
+| Phase 4 | ✅ | TLS/SASL options |
