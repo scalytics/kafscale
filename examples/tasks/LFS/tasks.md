@@ -377,10 +377,10 @@ lfsProxy:
 |----|------|----------|--------|-------|
 | P4-001 | Add `IsLfsEnvelope()` detection | P0 | [x] | Fast JSON prefix check for `kfs_lfs` - in pkg/lfs/envelope.go |
 | P4-002 | Add `DecodeEnvelope()` function | P0 | [x] | JSON decode with validation - in pkg/lfs/envelope.go |
-| P4-003 | Create `pkg/lfs/resolver.go` | P0 | [ ] | LFS Resolver type |
-| P4-004 | Implement `Resolve(record)` method | P0 | [ ] | Fetch blob, validate checksum |
-| P4-005 | Create `pkg/lfs/s3reader.go` | P0 | [ ] | S3Reader interface for GetObject |
-| P4-006 | Add `ResolvedRecord` type | P0 | [ ] | Payload, ContentType, BlobSize, Checksum |
+| P4-003 | Create `pkg/lfs/resolver.go` | P0 | [x] | LFS Resolver type |
+| P4-004 | Implement `Resolve(record)` method | P0 | [x] | Fetch blob, validate checksum |
+| P4-005 | Create `pkg/lfs/s3reader.go` | P0 | [x] | S3Reader interface for GetObject |
+| P4-006 | Add `ResolvedRecord` type | P0 | [x] | Payload, ContentType, BlobSize, Checksum |
 
 **Resolver Design:**
 ```go
@@ -652,7 +652,7 @@ mappings:
 
 ### M5: LFS-Aware Processors
 
-- [ ] `pkg/lfs/resolver.go` with S3 fetch and checksum validation
+- [x] `pkg/lfs/resolver.go` with S3 fetch and checksum validation
 - [ ] Iceberg processor integration with LFS modes
 - [ ] All P4-* tasks complete
 - [ ] E2E test: LFS data queryable via Spark/Trino

@@ -8,6 +8,7 @@ This manual describes the end-to-end data flow for the LFS proxy: how large blob
 - **S3-Compatible Storage**: AWS S3 or MinIO.
 - **Kafka Broker**: Receives pointer records (JSON envelope).
 - **Consumer SDK** (`pkg/lfs`): Detects envelopes and fetches objects from S3.
+- **Explode Processor (LFS module)**: Resolves LFS envelopes and emits IDoc-derived topics.
 
 ## Object Key Format
 
@@ -231,6 +232,11 @@ Optional mTLS:
 - `KAFSCALE_LFS_PROXY_HTTP_TLS_CLIENT_CA_FILE=/path/to/ca.crt`
 - `KAFSCALE_LFS_PROXY_HTTP_TLS_REQUIRE_CLIENT_CERT=true`
 
+## Explode Processor (LFS Module)
+
+The IDoc exploder is part of the LFS module and uses `pkg/lfs` to resolve envelopes. It parses XML and publishes
+structured topic streams (headers/items/partners/status/dates/segments) for analytics and correlation.
+
 ## End-to-End Summary
 
 - Producers send large data with `LFS_BLOB` header or via HTTP.
@@ -249,6 +255,9 @@ flowchart TD
   C -->|Detect envelope| D[SDK: pkg/lfs]
   D -->|Fetch blob| S3
   D -->|Return payload| C
+  K --> E[Explode Processor]
+  E -->|Resolve + parse XML| S3
+  E -->|Emit topic streams| T[IDoc Topics]
 ```
 
 ## Sequence Diagram (Kafka Write Path)
