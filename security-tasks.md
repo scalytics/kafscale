@@ -77,6 +77,18 @@ Acceptance criteria:
 - [x] Invalid topic header returns 400 with clear error message.
 - [x] Checksum mismatch increments orphan metric and logs orphan key (already implemented).
 
+## Phase 2.5 - Integrity Options (Planned)
+
+- [ ] Add configurable checksum algorithm (sha256/md5/crc32/none) for LFS validation.
+- [ ] Support per-request checksum algorithm override via headers.
+- [ ] Extend envelope schema to include `checksum_alg` and `checksum` while preserving `sha256` for compatibility.
+
+Acceptance criteria:
+- [ ] Default behavior remains sha256 (no breaking change).
+- [ ] HTTP: `X-LFS-Checksum-Alg` honored when provided.
+- [ ] Kafka: `LFS_BLOB_ALG` honored when provided.
+- [ ] Consumers can verify using `checksum_alg` if present.
+
 ## Phase 3 - Low Priority (Data Hygiene) ✅ COMPLETE
 
 - [x] Implement header allowlist for `OriginalHeaders` in the envelope.

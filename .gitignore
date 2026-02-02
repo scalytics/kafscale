@@ -87,3 +87,17 @@ Gemfile.lock
 
 # Ignore demo node_modules
 examples/E50_JS-kafscale-demo/node_modules/
+
+# LFS demo artifacts
+records.txt
+e2e-client
+lfs-proxy
+
+# Kubeconfig artifacts
+kubeconfig*
+
+# Ignore custom Agents
+examples/AGENTS.md
+AGENTS.md 
+
+

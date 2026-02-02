@@ -20,6 +20,7 @@ LFS_DEMO_TOPIC="${LFS_DEMO_TOPIC:-lfs-demo-topic}"
 LFS_DEMO_BLOB_SIZE="${LFS_DEMO_BLOB_SIZE:-10485760}"
 LFS_DEMO_BLOB_COUNT="${LFS_DEMO_BLOB_COUNT:-5}"
 LFS_DEMO_TIMEOUT_SEC="${LFS_DEMO_TIMEOUT_SEC:-120}"
+KAFSCALE_S3_NAMESPACE="${KAFSCALE_S3_NAMESPACE:-default}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 
 cleanup_kubeconfigs() {
@@ -394,7 +395,7 @@ if [[ -n "${pointer_meta:-}" ]]; then
     actual_sha=""
     # Use mc to fetch object (handles auth) and pipe to sha256sum
     actual_sha="$(kubectl -n "${LFS_DEMO_NAMESPACE}" exec pod/lfs-verify -- sh -c "
-      /tmp/mc cat minio/${MINIO_BUCKET}/${key} 2>/dev/null | sha256sum | awk '{print \$1}'
+      /tmp/mc cat minio/${MINIO_BUCKET}/${key} 2>/dev/null | sha256sum | cut -d ' ' -f1
     " 2>/dev/null || true)"
     actual_sha="$(echo "${actual_sha}" | tr -d '[:space:]')"
     status="mismatch"
@@ -455,7 +456,7 @@ echo " LFS Demo Complete!"
 echo "=========================================="
 echo ""
 echo "LFS Proxy: lfs-proxy.${LFS_DEMO_NAMESPACE}.svc.cluster.local:9092"
-echo "Blobs stored in: s3://${MINIO_BUCKET}/${LFS_DEMO_NAMESPACE}/${LFS_DEMO_TOPIC}/lfs/"
+echo "Blobs stored in: s3://${MINIO_BUCKET}/${KAFSCALE_S3_NAMESPACE}/${LFS_DEMO_TOPIC}/lfs/"
 echo ""
 echo "To access LFS proxy from local machine:"
 echo "  kubectl -n ${LFS_DEMO_NAMESPACE} port-forward svc/lfs-proxy 9092:9092"
