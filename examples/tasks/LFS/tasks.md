@@ -344,13 +344,13 @@ lfsProxy:
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| J2-001 | Set up Java SDK project | P0 | [ ] | Maven, separate repo |
-| J2-002 | Implement LfsConsumer wrapper | P0 | [ ] | Wrap KafkaConsumer |
-| J2-003 | Implement envelope detection | P0 | [ ] | JSON parsing |
-| J2-004 | Implement S3 fetch (AWS SDK) | P0 | [ ] | S3Client |
-| J2-005 | Implement checksum validation | P0 | [ ] | SHA256 |
-| J2-006 | Write unit tests | P0 | [ ] | JUnit 5 |
-| J2-007 | Write integration tests | P1 | [ ] | TestContainers |
+| J2-001 | Set up Java SDK project | P0 | [x] | Maven, separate repo |
+| J2-002 | Implement LfsConsumer wrapper | P0 | [x] | Wrap KafkaConsumer |
+| J2-003 | Implement envelope detection | P0 | [x] | JSON parsing |
+| J2-004 | Implement S3 fetch (AWS SDK) | P0 | [x] | S3Client |
+| J2-005 | Implement checksum validation | P0 | [x] | SHA256 |
+| J2-006 | Write unit tests | P0 | [x] | JUnit 5 |
+| J2-007 | Write integration tests | P1 | [ ] | TestContainers (deferred) |
 
 ---
 
@@ -369,9 +369,9 @@ lfsProxy:
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| J2-008 | Add Java streaming producer | P0 | [ ] | HTTP `/lfs/produce` |
-| J2-009 | Add resolver utilities | P0 | [ ] | Envelope + checksum helpers |
-| J2-010 | Add integration tests | P1 | [ ] | TestContainers + MinIO |
+| J2-008 | Add Java streaming producer | P0 | [x] | HTTP `/lfs/produce` |
+| J2-009 | Add resolver utilities | P0 | [x] | Envelope + checksum helpers |
+| J2-010 | Add integration tests | P1 | [ ] | TestContainers + MinIO (deferred) |
 
 #### JavaScript/TypeScript SDK
 Target: March 2026 (low priority).
@@ -706,7 +706,7 @@ mappings:
 
 - [x] HTTP streaming API working (P2-001 to P2-007)
 - [x] Streaming Producer SDK (S2-001 to S2-005)
-- [ ] Java Consumer Wrapper (J2-001 to J2-007) - Optional
+- [x] Java Consumer Wrapper (J2-001 to J2-006) - Optional (integration tests deferred)
 - [ ] Performance validated
 
 ### M5: LFS-Aware Processors
@@ -781,6 +781,24 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 | Phase 3 | ✅ | Constant-time API key compare, header allowlist |
 | Phase 4 | ✅ | TLS/SASL options |
 
+### 6.6 LFS SDK Demos (E70/E71)
+
+**Goal:** Use the existing video LFS demo stack and implement client SDK demos in Java (E70) and Python (E71).
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| DEMO-SDK-001 | Define run order using `lfs-demo-video` | P0 | [x] | Keep stack running while running E70/E71 |
+| DEMO-SDK-002 | Implement E70 Java demo against video LFS demo | P1 | [x] | Use LFS proxy + Kafka + MinIO |
+| DEMO-SDK-003 | Implement E71 Python demo against video LFS demo | P1 | [x] | Use LFS proxy + Kafka + MinIO |
+| DEMO-SDK-004 | Document prerequisites + env vars | P1 | [x] | Port-forwards + topic names |
+| DEMO-SDK-005 | Add validation steps | P2 | [x] | Verify resolved payloads |
+
+**Run Plan (Video LFS stack):**
+1. Terminal A: `make lfs-demo-video` (keeps video LFS demo stack running).
+2. Terminal B: port-forward LFS proxy, broker, MinIO.
+3. Terminal C: run E70 (Java) demo against the running stack.
+4. Terminal D: run E71 (Python) demo against the running stack.
+
 ### 6.6 LFS XML (IDoc) Demo
 
 **Goal:** Demonstrate LFS pointer ingestion for XML (IDoc), explode to JSON topics, and validate end-to-end.
@@ -788,7 +806,6 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
 | DEMO-IDOC-001 | Rename Make target to `lfs-demo-idoc` | P0 | [x] | Replace `idoc-demo` |
-| DEMO-IDOC-002 | Create E70/E71 LFS SDK demos | P1 | [ ] | Java + Python SDK demos |
 | DEMO-IDOC-003 | Add IDoc LFS demo README | P1 | [ ] | Run order + port-forwards |
 | DEMO-IDOC-004 | Produce LFS XML to `idoc-raw.<type>` | P1 | [ ] | LFS proxy + XML payload |
 | DEMO-IDOC-005 | Run `idoc-explode` on pointer topic | P1 | [ ] | Use `cmd/idoc-explode` |
