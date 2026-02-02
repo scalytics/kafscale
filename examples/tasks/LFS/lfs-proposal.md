@@ -1,3 +1,20 @@
+<!--
+Copyright 2026 Alexander Alten (novatechflow), NovaTechflow (novatechflow.com).
+This project is supported and financed by Scalytics, Inc. (www.scalytics.io).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 LFS (Large File Support) Design
 Summary
 KafScale will support per-topic Large File Support (LFS) by storing large payloads in S3 and writing a small pointer record to Kafka. Classic Kafka consumers will receive the pointer record; KafScale LFS consumer wrappers can resolve the pointer to stream the object directly from S3.

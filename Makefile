@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo medical-lfs-demo video-lfs-demo industrial-lfs-demo platform-demo help clean-kind-all
+.PHONY: proto build test tidy lint generate docker-build docker-build-e2e-client docker-build-etcd-tools docker-build-lfs-proxy docker-clean ensure-minio start-minio stop-containers release-broker-ports test-produce-consume test-produce-consume-debug test-consumer-group test-ops-api test-mcp test-multi-segment-durability test-full test-operator test-acl demo demo-platform demo-platform-bootstrap iceberg-demo kafsql-demo lfs-demo medical-lfs-demo video-lfs-demo industrial-lfs-demo platform-demo act-runnable help clean-kind-all
 
 REGISTRY ?= ghcr.io/kafscale
 STAMP_DIR ?= .build
@@ -636,6 +636,14 @@ tidy:
 
 lint:
 	golangci-lint run
+
+ACT ?= act
+ACT_PLATFORM ?= linux/amd64
+ACT_FLAGS ?= --container-architecture $(ACT_PLATFORM)
+
+act-runnable: ## Run runnable GitHub Actions locally (ci.yml, docker.yml)
+	$(ACT) -W .github/workflows/ci.yml $(ACT_FLAGS)
+	$(ACT) -W .github/workflows/docker.yml $(ACT_FLAGS)
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "%-20s %s\n", $$1, $$2}'
