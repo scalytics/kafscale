@@ -314,7 +314,6 @@ func TestRecordValueStreamNoFetcher(t *testing.T) {
 	}
 }
 
-
 func TestRecordValueStreamMD5Checksum(t *testing.T) {
 	blob := []byte("blob content")
 	md5sum := md5.Sum(blob)

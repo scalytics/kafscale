@@ -106,9 +106,9 @@ Acceptance criteria:
 
 ## Phase 4 - Future Enhancements
 
-- Add TLS/SASL options for Kafka backend connections.
-- Support TLS for HTTP endpoint (or enforce ingress termination).
+- [x] Add TLS/SASL options for Kafka backend connections.
+- [ ] Support TLS for HTTP endpoint (or enforce ingress termination).
 
 Acceptance criteria:
-- Documented TLS/SASL config options and examples.
-- Integration test or manual recipe confirming TLS endpoint works.
+- [x] Documented TLS/SASL config options and examples.
+- [ ] Integration test or manual recipe confirming TLS endpoint works.

@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net"
@@ -34,9 +35,9 @@ import (
 )
 
 const (
-	defaultProxyAddr = ":9092"
-	defaultMaxBlob   = int64(5 << 30)
-	defaultChunkSize = int64(5 << 20)
+	defaultProxyAddr                 = ":9092"
+	defaultMaxBlob                   = int64(5 << 30)
+	defaultChunkSize                 = int64(5 << 20)
 	defaultDialTimeoutMs             = 5000
 	defaultBackendBackoffMs          = 500
 	defaultBackendRefreshIntervalSec = 3
@@ -51,29 +52,33 @@ const (
 )
 
 type lfsProxy struct {
-	addr           string
-	advertisedHost string
-	advertisedPort int32
-	store          metadata.Store
-	backends       []string
-	logger         *slog.Logger
-	rr             uint32
-	dialTimeout    time.Duration
-	httpReadTimeout  time.Duration
-	httpWriteTimeout time.Duration
-	httpIdleTimeout  time.Duration
-	httpHeaderTimeout time.Duration
-	httpMaxHeaderBytes int
-	httpShutdownTimeout time.Duration
-	topicMaxLength int
-	checksumAlg  string
-	ready          uint32
-	lastHealthy    int64
-	cacheTTL       time.Duration
-	cacheMu        sync.RWMutex
-	cachedBackends []string
-	apiVersions    []protocol.ApiVersion
-	metrics        *lfsMetrics
+	addr                 string
+	advertisedHost       string
+	advertisedPort       int32
+	store                metadata.Store
+	backends             []string
+	logger               *slog.Logger
+	rr                   uint32
+	dialTimeout          time.Duration
+	httpReadTimeout      time.Duration
+	httpWriteTimeout     time.Duration
+	httpIdleTimeout      time.Duration
+	httpHeaderTimeout    time.Duration
+	httpMaxHeaderBytes   int
+	httpShutdownTimeout  time.Duration
+	topicMaxLength       int
+	checksumAlg          string
+	backendTLSConfig     *tls.Config
+	backendSASLMechanism string
+	backendSASLUsername  string
+	backendSASLPassword  string
+	ready                uint32
+	lastHealthy          int64
+	cacheTTL             time.Duration
+	cacheMu              sync.RWMutex
+	cachedBackends       []string
+	apiVersions          []protocol.ApiVersion
+	metrics              *lfsMetrics
 
 	s3Uploader  *s3Uploader
 	s3Bucket    string
@@ -134,6 +139,14 @@ func main() {
 	httpShutdownTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_SHUTDOWN_TIMEOUT_SEC", defaultHTTPShutdownTimeoutSec)) * time.Second
 	topicMaxLength := envInt("KAFSCALE_LFS_PROXY_TOPIC_MAX_LENGTH", defaultTopicMaxLength)
 	checksumAlg := envOrDefault("KAFSCALE_LFS_PROXY_CHECKSUM_ALGO", "sha256")
+	backendTLSConfig, err := buildBackendTLSConfig()
+	if err != nil {
+		logger.Error("backend tls config failed", "error", err)
+		os.Exit(1)
+	}
+	backendSASLMechanism := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_MECHANISM"))
+	backendSASLUsername := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_USERNAME"))
+	backendSASLPassword := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_PASSWORD"))
 
 	store, err := buildMetadataStore(ctx)
 	if err != nil {
@@ -172,31 +185,35 @@ func main() {
 	metrics := newLfsMetrics()
 
 	p := &lfsProxy{
-		addr:           addr,
-		advertisedHost: advertisedHost,
-		advertisedPort: advertisedPort,
-		store:          store,
-		backends:       backends,
-		logger:         logger,
-		dialTimeout:    dialTimeout,
-		cacheTTL:       cacheTTL,
-		apiVersions:    generateProxyApiVersions(),
-		metrics:        metrics,
-		s3Uploader:     s3Uploader,
-		s3Bucket:       s3Bucket,
-		s3Namespace:    s3Namespace,
-		maxBlob:        maxBlob,
-		chunkSize:      chunkSize,
-		proxyID:        proxyID,
-		httpAPIKey:     httpAPIKey,
-		httpReadTimeout:  httpReadTimeout,
-		httpWriteTimeout: httpWriteTimeout,
-		httpIdleTimeout:  httpIdleTimeout,
-		httpHeaderTimeout: httpHeaderTimeout,
-		httpMaxHeaderBytes: httpMaxHeaderBytes,
-		httpShutdownTimeout: httpShutdownTimeout,
-		topicMaxLength: topicMaxLength,
-		checksumAlg:  checksumAlg,
+		addr:                 addr,
+		advertisedHost:       advertisedHost,
+		advertisedPort:       advertisedPort,
+		store:                store,
+		backends:             backends,
+		logger:               logger,
+		dialTimeout:          dialTimeout,
+		cacheTTL:             cacheTTL,
+		apiVersions:          generateProxyApiVersions(),
+		metrics:              metrics,
+		s3Uploader:           s3Uploader,
+		s3Bucket:             s3Bucket,
+		s3Namespace:          s3Namespace,
+		maxBlob:              maxBlob,
+		chunkSize:            chunkSize,
+		proxyID:              proxyID,
+		httpAPIKey:           httpAPIKey,
+		httpReadTimeout:      httpReadTimeout,
+		httpWriteTimeout:     httpWriteTimeout,
+		httpIdleTimeout:      httpIdleTimeout,
+		httpHeaderTimeout:    httpHeaderTimeout,
+		httpMaxHeaderBytes:   httpMaxHeaderBytes,
+		httpShutdownTimeout:  httpShutdownTimeout,
+		topicMaxLength:       topicMaxLength,
+		checksumAlg:          checksumAlg,
+		backendTLSConfig:     backendTLSConfig,
+		backendSASLMechanism: backendSASLMechanism,
+		backendSASLUsername:  backendSASLUsername,
+		backendSASLPassword:  backendSASLPassword,
 	}
 	if len(backends) > 0 {
 		p.setCachedBackends(backends)

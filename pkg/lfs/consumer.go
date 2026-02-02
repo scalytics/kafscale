@@ -17,7 +17,7 @@ package lfs
 
 import (
 	"context"
-	)
+)
 
 // BlobFetcher downloads LFS blobs from storage.
 type BlobFetcher interface {

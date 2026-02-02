@@ -21,8 +21,8 @@ Public endpoints include any externally reachable HTTP, gRPC, or Kafka endpoints
 - Rate limiting: Not implemented.
 
 ### Kafka listener
-- Auth: Depends on broker ACLs (proxy does not add auth).
-- Transport: No TLS in proxy; depends on network controls.
+- Auth: Supports SASL/PLAIN to backend brokers when configured.
+- Transport: Supports TLS to backend brokers when configured.
 
 ### Health/Metrics
 - Health endpoints exposed on separate port; typically internal only.

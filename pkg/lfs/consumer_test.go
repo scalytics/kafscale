@@ -89,7 +89,6 @@ func TestConsumerUnwrapLFS(t *testing.T) {
 	}
 }
 
-
 func TestConsumerUnwrapMD5Checksum(t *testing.T) {
 	blob := []byte("md5-blob")
 	sha := sha256.Sum256(blob)

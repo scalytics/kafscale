@@ -166,6 +166,15 @@ Result: The consumer gets the original blob payload.
   - `KAFSCALE_LFS_PROXY_HTTP_MAX_HEADER_BYTES`
   - `KAFSCALE_LFS_PROXY_HTTP_SHUTDOWN_TIMEOUT_SEC`
   - `KAFSCALE_LFS_PROXY_BACKENDS` (broker list)
+  - `KAFSCALE_LFS_PROXY_BACKEND_TLS_ENABLED`
+  - `KAFSCALE_LFS_PROXY_BACKEND_TLS_CA_FILE`
+  - `KAFSCALE_LFS_PROXY_BACKEND_TLS_CERT_FILE`
+  - `KAFSCALE_LFS_PROXY_BACKEND_TLS_KEY_FILE`
+  - `KAFSCALE_LFS_PROXY_BACKEND_TLS_SERVER_NAME`
+  - `KAFSCALE_LFS_PROXY_BACKEND_TLS_INSECURE_SKIP_VERIFY`
+  - `KAFSCALE_LFS_PROXY_BACKEND_SASL_MECHANISM`
+  - `KAFSCALE_LFS_PROXY_BACKEND_SASL_USERNAME`
+  - `KAFSCALE_LFS_PROXY_BACKEND_SASL_PASSWORD`
   - `KAFSCALE_LFS_PROXY_BACKEND_RETRIES`
   - `KAFSCALE_LFS_PROXY_BACKEND_BACKOFF_MS`
   - `KAFSCALE_LFS_PROXY_BACKEND_REFRESH_INTERVAL_SEC`
@@ -190,6 +199,12 @@ non-cryptographic checksums (e.g., CRC32) or MD5. The default remains SHA-256 fo
 - **Kafka header**: `LFS_BLOB_ALG` (optional)
 - **HTTP header**: `X-LFS-Checksum-Alg` (optional)
 - **Envelope fields** (planned): `checksum_alg`, `checksum` (with `sha256` preserved for compatibility)
+
+
+## Backend TLS/SASL
+
+The proxy can secure backend broker connections with TLS and SASL/PLAIN.
+Configure via `KAFSCALE_LFS_PROXY_BACKEND_TLS_*` and `KAFSCALE_LFS_PROXY_BACKEND_SASL_*` env vars.
 
 ## End-to-End Summary
 

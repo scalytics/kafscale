@@ -17,7 +17,7 @@ package lfs
 
 import (
 	"context"
-		"io"
+	"io"
 	"sync"
 )
 

@@ -19,9 +19,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -679,7 +679,20 @@ func (p *lfsProxy) connectBackend(ctx context.Context) (net.Conn, string, error)
 		dialer := net.Dialer{Timeout: p.dialTimeout}
 		conn, dialErr := dialer.DialContext(ctx, "tcp", addr)
 		if dialErr == nil {
-			return conn, addr, nil
+			wrapped, err := p.wrapBackendTLS(ctx, conn, addr)
+			if err != nil {
+				_ = conn.Close()
+				lastErr = err
+				time.Sleep(backoff)
+				continue
+			}
+			if err := p.performBackendSASL(ctx, wrapped); err != nil {
+				_ = wrapped.Close()
+				lastErr = err
+				time.Sleep(backoff)
+				continue
+			}
+			return wrapped, addr, nil
 		}
 		lastErr = dialErr
 		time.Sleep(backoff)
