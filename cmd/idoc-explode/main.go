@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,31 +70,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	if isXMLInput(*inputPath) {
+		payload, err := io.ReadAll(input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "read xml: %v\n", err)
+			os.Exit(1)
+		}
+		processPayload(ctx, resolver, payload, cfg, topics, writer)
+		return
+	}
+
 	scanner := bufio.NewScanner(input)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		payload, err := resolvePayload(ctx, resolver, []byte(line))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "resolve payload: %v\n", err)
-			continue
-		}
-		result, err := idoc.ExplodeXML(payload, cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "explode: %v\n", err)
-			continue
-		}
-		records, err := result.ToTopicRecords(topics)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "records: %v\n", err)
-			continue
-		}
-		if err := writer.write(records); err != nil {
-			fmt.Fprintf(os.Stderr, "write: %v\n", err)
-			continue
-		}
+		processPayload(ctx, resolver, []byte(line), cfg, topics, writer)
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "scan: %v\n", err)
@@ -258,4 +251,33 @@ func parseInt64(raw string) (int64, error) {
 		out = out*10 + int64(ch-'0')
 	}
 	return out, nil
+}
+
+func processPayload(ctx context.Context, resolver *lfs.Resolver, raw []byte, cfg idoc.ExplodeConfig, topics idoc.TopicConfig, writer *topicWriter) {
+	payload, err := resolvePayload(ctx, resolver, raw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve payload: %v\n", err)
+		return
+	}
+	result, err := idoc.ExplodeXML(payload, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "explode: %v\n", err)
+		return
+	}
+	records, err := result.ToTopicRecords(topics)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "records: %v\n", err)
+		return
+	}
+	if err := writer.write(records); err != nil {
+		fmt.Fprintf(os.Stderr, "write: %v\n", err)
+		return
+	}
+}
+
+func isXMLInput(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(path), ".xml")
 }

@@ -295,7 +295,7 @@ lfsProxy:
 | T1-009 | Add E2E test for checksum validation | P1 | [x] | Client checksum mismatch |
 | T1-010 | Add E2E test for S3 failure | P1 | [x] | S3 unavailable handling |
 | T1-011 | Add to CI pipeline | P0 | [x] | `go test ./cmd/lfs-proxy/...` in ci.yml |
-| T1-012 | Add coverage reporting | P1 | [ ] | 80% target |
+| T1-012 | Add coverage reporting | P1 | [x] | 80% target |
 | T1-013 | Add test for checksum mismatch rejection | P0 | [x] | TestRewriteProduceRecordsChecksumMismatch |
 | T1-014 | Add test for max blob size rejection | P0 | [x] | TestRewriteProduceRecordsMaxBlobSize |
 | T1-015 | Add test for S3 upload failure | P0 | [x] | TestRewriteProduceRecordsS3Failure |
@@ -595,7 +595,7 @@ mappings:
 - [x] All P1-* tasks (Proxy Core)
 - [x] All C1-* tasks (Consumer SDK)
 - [x] All D1-* tasks (Deployment)
-- [x] All T1-* tasks except T1-012 (Testing)
+- [x] All T1-* tasks complete (Testing)
 - [x] All O1-* tasks (Observability)
 - [x] All DEMO-* tasks (Demo)
 - [x] All P2-* tasks (HTTP Streaming Endpoint)
