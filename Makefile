@@ -572,7 +572,7 @@ kafsql-demo: demo-platform-bootstrap ## Run the KAFSQL processor e2e demo on kin
 	bash scripts/kafsql-demo.sh
 
 lfs-demo: KAFSCALE_DEMO_PROXY=0
-lfs-demo: KAFSCALE_DEMO_CONSOLE=0
+lfs-demo: KAFSCALE_DEMO_CONSOLE=1
 lfs-demo: KAFSCALE_DEMO_BROKER_REPLICAS=1
 lfs-demo: demo-platform-bootstrap ## Run the LFS proxy demo on kind.
 	$(MAKE) docker-build-lfs-proxy
@@ -633,6 +633,13 @@ lfs-demo-industrial: demo-platform-bootstrap ## Run the Industrial LFS demo (E62
 	MINIO_ROOT_USER=$(MINIO_ROOT_USER) \
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
 	bash scripts/lfs-demo-industrial.sh
+
+e72-browser-demo: ## Run the E72 Browser LFS SDK demo (SPA with E2E tests).
+	@echo "=== E72 Browser LFS SDK Demo ==="
+	@echo "Prerequisites: LFS proxy must be port-forwarded to localhost:8080"
+	@echo "  kubectl -n kafscale-demo port-forward svc/lfs-proxy 8080:8080"
+	@echo ""
+	cd examples/E72_browser-lfs-sdk-demo && $(MAKE) test
 
 platform-demo: demo-platform ## Alias for demo-platform.
 

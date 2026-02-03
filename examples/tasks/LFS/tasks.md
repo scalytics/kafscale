@@ -362,8 +362,8 @@ lfsProxy:
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| G2-001 | Add Go SDK usage examples | P0 | [ ] | `pkg/lfs/doc.go` |
-| G2-002 | Add Go SDK integration tests | P0 | [ ] | LFS proxy + MinIO |
+| G2-001 | Add Go SDK usage examples | P0 | [x] | `pkg/lfs/doc.go` |
+| G2-002 | Add Go SDK integration tests | P0 | [x] | LFS proxy + MinIO (Kind-based) |
 
 #### Java SDK
 
@@ -373,16 +373,32 @@ lfsProxy:
 | J2-009 | Add resolver utilities | P0 | [x] | Envelope + checksum helpers |
 | J2-010 | Add integration tests | P1 | [x] | TestContainers + MinIO (deferred) |
 
-#### JavaScript/TypeScript SDK
+#### JavaScript/TypeScript SDK (Node.js)
 Target: March 2026 (low priority).
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| JS2-001 | Create SDK scaffold | P3 | [ ] | `lfs-client-sdk/js/` (target March 2026, low priority) |
-| JS2-002 | Consumer helper | P3 | [ ] | Detect envelope + S3 fetch (target March 2026, low priority) |
-| JS2-003 | Producer helper | P3 | [ ] | HTTP `/lfs/produce` (target March 2026, low priority) |
-| JS2-004 | Types + examples | P3 | [ ] | TypeScript types (target March 2026, low priority) |
-| JS2-005 | Integration tests | P3 | [ ] | MinIO + local proxy (target March 2026, low priority) |
+| JS2-001 | Create SDK scaffold | P3 | [x] | `lfs-client-sdk/js/` (uses librdkafka) |
+| JS2-002 | Consumer helper | P3 | [x] | Detect envelope + S3 fetch |
+| JS2-003 | Producer helper | P3 | [x] | HTTP `/lfs/produce` |
+| JS2-004 | Types + examples | P3 | [x] | TypeScript types |
+| JS2-005 | Integration tests | P3 | [ ] | MinIO + local proxy |
+
+#### JavaScript Browser SDK (E72)
+**No librdkafka** - Pure fetch API for browser usage.
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| JS-BROWSER-001 | Create `lfs-client-sdk/js-browser/` scaffold | P0 | [x] | Zero runtime deps |
+| JS-BROWSER-002 | Implement `LfsProducer` with fetch/XHR | P0 | [x] | Progress callback via XHR |
+| JS-BROWSER-003 | Implement `LfsEnvelope` types | P0 | [x] | Same as Node SDK |
+| JS-BROWSER-004 | Implement browser SHA-256 | P0 | [x] | `crypto.subtle.digest()` |
+| JS-BROWSER-005 | Implement `LfsResolver` | P0 | [x] | Pre-signed URL pattern |
+| JS-BROWSER-006 | Add retry/backoff | P0 | [x] | Same as Python/Java |
+| JS-BROWSER-010 | Create E72 SPA demo | P0 | [x] | Drag-drop upload + E2E tests |
+| JS-BROWSER-011 | Add `make e72-browser-demo` target | P0 | [x] | Serves demo on localhost:3000 |
+| JS-BROWSER-020 | Build ESM + UMD bundles | P1 | [ ] | esbuild config |
+| JS-BROWSER-021 | Playwright E2E tests | P2 | [ ] | Automated browser tests |
 
 #### Python SDK
 
@@ -841,4 +857,3 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 3. Terminal C: upload XML via LFS proxy to `idoc-raw.<type>`.
 4. Terminal C: run `make lfs-demo-idoc` to explode XML into JSON topics.
 5. Verify `idoc-headers`, `idoc-items`, `idoc-partners`, `idoc-dates`, `idoc-status` topics.
-
