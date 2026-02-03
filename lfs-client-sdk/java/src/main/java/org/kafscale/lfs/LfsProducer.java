@@ -25,19 +25,47 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class LfsProducer {
+
+    private static class ErrorResponse {
+        public String code;
+        public String message;
+        public String request_id;
+    }
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final long MULTIPART_MIN_BYTES = 5L * 1024 * 1024;
+    private static final String HEADER_REQUEST_ID = "X-Request-ID";
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofMinutes(5);
+    private static final int DEFAULT_RETRIES = 3;
+    private static final long RETRY_SLEEP_MILLIS = 500L;
 
     private final HttpClient client;
     private final URI endpoint;
+    private final Duration requestTimeout;
 
     public LfsProducer(URI endpoint) {
-        this.client = HttpClient.newHttpClient();
+        this(endpoint, DEFAULT_CONNECT_TIMEOUT, DEFAULT_REQUEST_TIMEOUT);
+    }
+
+    public LfsProducer(URI endpoint, Duration connectTimeout, Duration requestTimeout) {
+        Duration resolvedConnect = connectTimeout == null ? DEFAULT_CONNECT_TIMEOUT : connectTimeout;
+        Duration resolvedRequest = requestTimeout == null ? DEFAULT_REQUEST_TIMEOUT : requestTimeout;
+        this.client = HttpClient.newBuilder()
+                .connectTimeout(resolvedConnect)
+                .build();
         this.endpoint = endpoint;
+        this.requestTimeout = resolvedRequest;
     }
 
     public LfsEnvelope produce(String topic, byte[] key, InputStream payload, Map<String, String> headers) throws Exception {
+        return produce(topic, key, payload, headers, -1);
+    }
+
+    public LfsEnvelope produce(String topic, byte[] key, InputStream payload, Map<String, String> headers, long sizeHint) throws Exception {
         Map<String, String> outHeaders = new HashMap<>();
         outHeaders.put("X-Kafka-Topic", topic);
         if (key != null) {
@@ -46,20 +74,60 @@ public class LfsProducer {
         if (headers != null) {
             outHeaders.putAll(headers);
         }
+        if (!outHeaders.containsKey(HEADER_REQUEST_ID)) {
+            outHeaders.put(HEADER_REQUEST_ID, UUID.randomUUID().toString());
+        }
+        if (sizeHint >= 0) {
+            outHeaders.put("X-LFS-Size", String.valueOf(sizeHint));
+            outHeaders.put("X-LFS-Mode", sizeHint < MULTIPART_MIN_BYTES ? "single" : "multipart");
+        }
 
         HttpRequest.Builder req = HttpRequest.newBuilder()
                 .uri(endpoint)
-                .timeout(Duration.ofMinutes(5))
+                .timeout(requestTimeout)
                 .POST(HttpRequest.BodyPublishers.ofInputStream(() -> payload));
 
         for (Map.Entry<String, String> entry : outHeaders.entrySet()) {
             req.header(entry.getKey(), entry.getValue());
         }
 
-        HttpResponse<String> resp = client.send(req.build(), HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-            throw new IllegalStateException("produce failed: " + resp.statusCode() + " " + resp.body());
+        return sendWithRetry(req.build());
+    }
+
+    public LfsEnvelope produce(String topic, byte[] key, byte[] data, Map<String, String> headers) throws Exception {
+        return produce(topic, key, new java.io.ByteArrayInputStream(data), headers, data.length);
+    }
+
+    private LfsEnvelope sendWithRetry(HttpRequest request) throws Exception {
+        Exception last = null;
+        for (int attempt = 1; attempt <= DEFAULT_RETRIES; attempt++) {
+            try {
+                HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                    String body = resp.body();
+                    String requestId = resp.headers().firstValue(HEADER_REQUEST_ID).orElse("");
+                    ErrorResponse err = null;
+                    try {
+                        err = MAPPER.readValue(body, ErrorResponse.class);
+                    } catch (Exception ignored) {
+                    }
+                    String code = err != null ? err.code : "";
+                    String message = err != null && err.message != null ? err.message : body;
+                    String errRequestId = err != null && err.request_id != null ? err.request_id : requestId;
+                    throw new LfsHttpException(resp.statusCode(), code, message, errRequestId, body);
+                }
+                return MAPPER.readValue(resp.body(), LfsEnvelope.class);
+            } catch (java.io.IOException ex) {
+                last = ex;
+                if (attempt == DEFAULT_RETRIES) {
+                    break;
+                }
+                Thread.sleep(RETRY_SLEEP_MILLIS);
+            }
         }
-        return MAPPER.readValue(resp.body(), LfsEnvelope.class);
+        if (last != null) {
+            throw last;
+        }
+        throw new IllegalStateException("produce failed: no response");
     }
 }
