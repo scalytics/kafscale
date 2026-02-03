@@ -1,0 +1,308 @@
+# Copyright 2026 Alexander Alten (novatechflow), NovaTechflow (novatechflow.com).
+# This project is supported and financed by Scalytics, Inc. (www.scalytics.io).
+#
+# Deploys the E72 Browser LFS Demo inside the cluster.
+# The demo can access lfs-proxy directly via cluster DNS.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e72-browser-demo
+  labels:
+    app: e72-browser-demo
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>E72 - Browser LFS SDK Demo (In-Cluster)</title>
+      <style>
+        :root {
+          --primary: #2563eb;
+          --primary-hover: #1d4ed8;
+          --success: #16a34a;
+          --error: #dc2626;
+          --bg: #f8fafc;
+          --card: #ffffff;
+          --border: #e2e8f0;
+          --text: #1e293b;
+          --text-muted: #64748b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { font-size: 1.875rem; margin-bottom: 0.5rem; }
+        .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
+        .badge { background: var(--success); color: white; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; margin-left: 0.5rem; }
+        .card {
+          background: var(--card); border: 1px solid var(--border);
+          border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;
+        }
+        .card h2 { font-size: 1.125rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-weight: 500; margin-bottom: 0.25rem; font-size: 0.875rem; }
+        input[type="text"], input[type="url"] {
+          width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border);
+          border-radius: 0.375rem; font-size: 0.875rem;
+        }
+        input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .drop-zone {
+          border: 2px dashed var(--border); border-radius: 0.5rem; padding: 2rem;
+          text-align: center; cursor: pointer; transition: all 0.2s;
+        }
+        .drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background: rgba(37, 99, 235, 0.05); }
+        .drop-zone input[type="file"] { display: none; }
+        .drop-zone-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .drop-zone-text { color: var(--text-muted); font-size: 0.875rem; }
+        .file-info { background: var(--bg); padding: 0.75rem; border-radius: 0.375rem; margin-top: 1rem; display: none; }
+        .file-info.visible { display: block; }
+        .file-name { font-weight: 500; }
+        .file-size { color: var(--text-muted); font-size: 0.875rem; }
+        .progress-container { margin-top: 1rem; display: none; }
+        .progress-container.visible { display: block; }
+        .progress-bar { height: 0.5rem; background: var(--border); border-radius: 0.25rem; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
+        .progress-text { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+        .btn {
+          display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem;
+          border: none; border-radius: 0.375rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .result { margin-top: 1rem; padding: 1rem; border-radius: 0.375rem; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; display: none; }
+        .result.visible { display: block; }
+        .result.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: var(--success); }
+        .result.error { background: #fef2f2; border: 1px solid #fecaca; color: var(--error); }
+        .test-results { margin-top: 1rem; }
+        .test-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+        .test-item:last-child { border-bottom: none; }
+        .test-status { width: 1.25rem; height: 1.25rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+        .test-status.pass { background: var(--success); color: white; }
+        .test-status.fail { background: var(--error); color: white; }
+        .test-status.pending { background: var(--border); color: var(--text-muted); }
+        .config-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 640px) { .config-row { grid-template-columns: 1fr; } }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🚀 Browser LFS SDK Demo <span class="badge">in-cluster</span></h1>
+        <p class="subtitle">Running inside Kubernetes - direct access to LFS proxy via cluster DNS</p>
+        <div class="card">
+          <h2>⚙️ Configuration</h2>
+          <div class="config-row">
+            <div class="form-group">
+              <label for="endpoint">LFS Proxy Endpoint</label>
+              <input type="url" id="endpoint" value="http://lfs-proxy:8080/lfs/produce">
+            </div>
+            <div class="form-group">
+              <label for="topic">Kafka Topic</label>
+              <input type="text" id="topic" value="browser-uploads">
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>📤 Upload File</h2>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput">
+            <div class="drop-zone-icon">📁</div>
+            <div class="drop-zone-text">Drag & drop a file here or click to browse</div>
+          </div>
+          <div class="file-info" id="fileInfo">
+            <span class="file-name" id="fileName"></span>
+            <span class="file-size" id="fileSize"></span>
+          </div>
+          <div class="progress-container" id="progressContainer">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-text" id="progressText">0% uploaded</div>
+          </div>
+          <div style="margin-top: 1rem;">
+            <button class="btn btn-primary" id="uploadBtn" disabled><span>⬆️</span> Upload to LFS</button>
+          </div>
+          <div class="result" id="uploadResult"></div>
+        </div>
+        <div class="card">
+          <h2>🧪 End-to-End Test</h2>
+          <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">Tests small (1KB), medium (100KB), and large (1MB) synthetic payloads</p>
+          <button class="btn btn-primary" id="runTestsBtn"><span>▶️</span> Run E2E Tests</button>
+          <div class="test-results" id="testResults"></div>
+        </div>
+      </div>
+      <script>
+        class LfsProducer {
+          constructor(config) {
+            this.endpoint = config.endpoint;
+            this.timeout = config.timeout ?? 300000;
+            this.retries = config.retries ?? 3;
+            this.retryDelay = config.retryDelay ?? 200;
+          }
+          async produce(topic, payload, options = {}) {
+            const headers = { 'X-Kafka-Topic': topic, 'X-Request-ID': crypto.randomUUID() };
+            if (options.key) headers['X-Kafka-Key'] = options.key;
+            if (options.headers) Object.assign(headers, options.headers);
+            const blob = payload instanceof Blob ? payload : new Blob([payload]);
+            headers['X-LFS-Size'] = String(blob.size);
+            headers['X-LFS-Mode'] = blob.size < 5 * 1024 * 1024 ? 'single' : 'multipart';
+            if (!headers['Content-Type'] && blob.type) headers['Content-Type'] = blob.type;
+            return this.sendWithRetry(blob, headers, options);
+          }
+          async sendWithRetry(blob, headers, options) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= this.retries; attempt++) {
+              try { return await this.uploadWithProgress(blob, headers, options.onProgress); }
+              catch (error) {
+                lastError = error;
+                if (error.statusCode && error.statusCode < 500) throw error;
+                if (attempt < this.retries) await new Promise(r => setTimeout(r, this.retryDelay * Math.pow(2, attempt - 1)));
+              }
+            }
+            throw lastError ?? new Error('Upload failed');
+          }
+          uploadWithProgress(blob, headers, onProgress) {
+            return new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('POST', this.endpoint, true);
+              for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
+              if (onProgress) {
+                xhr.upload.onprogress = (e) => {
+                  if (e.lengthComputable) onProgress({ loaded: e.loaded, total: e.total, percent: Math.round((e.loaded / e.total) * 100) });
+                };
+              }
+              xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error('Invalid JSON')); }
+                } else { reject({ statusCode: xhr.status, message: xhr.responseText }); }
+              };
+              xhr.onerror = () => reject(new Error('Network error'));
+              xhr.send(blob);
+            });
+          }
+        }
+        const $ = (id) => document.getElementById(id);
+        const dropZone = $('dropZone'), fileInput = $('fileInput'), fileInfo = $('fileInfo');
+        const fileName = $('fileName'), fileSize = $('fileSize'), progressContainer = $('progressContainer');
+        const progressFill = $('progressFill'), progressText = $('progressText'), uploadBtn = $('uploadBtn');
+        const uploadResult = $('uploadResult'), runTestsBtn = $('runTestsBtn'), testResults = $('testResults');
+        let selectedFile = null;
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]); });
+        fileInput.addEventListener('change', () => { if (fileInput.files.length) selectFile(fileInput.files[0]); });
+        function selectFile(file) {
+          selectedFile = file;
+          fileName.textContent = file.name;
+          fileSize.textContent = ` (${formatBytes(file.size)})`;
+          fileInfo.classList.add('visible');
+          uploadBtn.disabled = false;
+          uploadResult.classList.remove('visible');
+        }
+        function formatBytes(bytes) {
+          if (bytes === 0) return '0 Bytes';
+          const k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        uploadBtn.addEventListener('click', async () => {
+          if (!selectedFile) return;
+          const endpoint = $('endpoint').value, topic = $('topic').value;
+          uploadBtn.disabled = true;
+          progressContainer.classList.add('visible');
+          progressFill.style.width = '0%';
+          progressText.textContent = '0% uploaded';
+          uploadResult.classList.remove('visible');
+          const producer = new LfsProducer({ endpoint });
+          try {
+            const envelope = await producer.produce(topic, selectedFile, {
+              key: selectedFile.name,
+              headers: { 'Content-Type': selectedFile.type || 'application/octet-stream' },
+              onProgress: (p) => { progressFill.style.width = `${p.percent}%`; progressText.textContent = `${p.percent}% uploaded`; }
+            });
+            uploadResult.className = 'result visible success';
+            uploadResult.textContent = '✅ Upload successful!\n\n' + JSON.stringify(envelope, null, 2);
+          } catch (error) {
+            uploadResult.className = 'result visible error';
+            uploadResult.textContent = '❌ Upload failed!\n\n' + (error.message || JSON.stringify(error));
+          } finally { uploadBtn.disabled = false; }
+        });
+        runTestsBtn.addEventListener('click', async () => {
+          const endpoint = $('endpoint').value, topic = $('topic').value;
+          const tests = [
+            { name: 'Small payload (1 KB)', size: 1024 },
+            { name: 'Medium payload (100 KB)', size: 100 * 1024 },
+            { name: 'Large payload (1 MB)', size: 1024 * 1024 },
+          ];
+          testResults.innerHTML = tests.map(t => `<div class="test-item"><div class="test-status pending">⏳</div><span>${t.name}</span></div>`).join('');
+          runTestsBtn.disabled = true;
+          const producer = new LfsProducer({ endpoint });
+          for (let i = 0; i < tests.length; i++) {
+            const test = tests[i], item = testResults.children[i], status = item.querySelector('.test-status');
+            try {
+              const data = new Uint8Array(test.size);
+              for (let j = 0; j < data.length; j++) data[j] = j % 256;
+              const blob = new Blob([data], { type: 'application/octet-stream' });
+              const envelope = await producer.produce(topic, blob, { key: `e2e-test-${test.size}` });
+              if (!envelope.key || !envelope.sha256 || envelope.size !== test.size) throw new Error('Invalid envelope');
+              status.className = 'test-status pass'; status.textContent = '✓';
+              item.innerHTML += `<span style="color: var(--text-muted); font-size: 0.75rem; margin-left: auto;">sha256: ${envelope.sha256.slice(0, 8)}...</span>`;
+            } catch (error) {
+              status.className = 'test-status fail'; status.textContent = '✗';
+              item.innerHTML += `<span style="color: var(--error); font-size: 0.75rem; margin-left: auto;">${error.message || 'Failed'}</span>`;
+            }
+          }
+          runTestsBtn.disabled = false;
+        });
+      </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e72-browser-demo
+  labels:
+    app: e72-browser-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: e72-browser-demo
+  template:
+    metadata:
+      labels:
+        app: e72-browser-demo
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+      volumes:
+        - name: html
+          configMap:
+            name: e72-browser-demo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e72-browser-demo
+  labels:
+    app: e72-browser-demo
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30072
+  selector:
+    app: e72-browser-demo

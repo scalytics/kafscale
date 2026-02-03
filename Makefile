@@ -634,12 +634,15 @@ lfs-demo-industrial: demo-platform-bootstrap ## Run the Industrial LFS demo (E62
 	MINIO_ROOT_PASSWORD=$(MINIO_ROOT_PASSWORD) \
 	bash scripts/lfs-demo-industrial.sh
 
-e72-browser-demo: ## Run the E72 Browser LFS SDK demo (SPA with E2E tests).
-	@echo "=== E72 Browser LFS SDK Demo ==="
+e72-browser-demo: ## Run the E72 Browser LFS SDK demo (local, requires port-forward).
+	@echo "=== E72 Browser LFS SDK Demo (Local) ==="
 	@echo "Prerequisites: LFS proxy must be port-forwarded to localhost:8080"
 	@echo "  kubectl -n kafscale-demo port-forward svc/lfs-proxy 8080:8080"
 	@echo ""
 	cd examples/E72_browser-lfs-sdk-demo && $(MAKE) test
+
+e72-browser-demo-k8s: ## Run the E72 Browser LFS SDK demo inside the kind cluster.
+	bash scripts/e72-browser-demo.sh
 
 platform-demo: demo-platform ## Alias for demo-platform.
 
