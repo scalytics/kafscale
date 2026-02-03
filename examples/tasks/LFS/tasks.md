@@ -783,21 +783,42 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 
 ### 6.6 LFS SDK Demos (E70/E71)
 
-**Goal:** Use the existing video LFS demo stack and implement client SDK demos in Java (E70) and Python (E71).
+**Goal:** Use the standard `lfs-demo` stack and implement client SDK demos in Java (E70) and Python (E71).
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| DEMO-SDK-001 | Define run order using `lfs-demo-video` | P0 | [x] | Keep stack running while running E70/E71 |
-| DEMO-SDK-002 | Implement E70 Java demo against video LFS demo | P1 | [x] | Use LFS proxy + Kafka + MinIO |
-| DEMO-SDK-003 | Implement E71 Python demo against video LFS demo | P1 | [x] | Use LFS proxy + Kafka + MinIO |
+| DEMO-SDK-001 | Define run order using `lfs-demo` | P0 | [x] | Keep stack running while running E70/E71 |
+| DEMO-SDK-002 | Implement E70 Java demo against LFS demo stack | P1 | [x] | Use LFS proxy + Kafka + MinIO |
+| DEMO-SDK-003 | Implement E71 Python demo against LFS demo stack | P1 | [x] | Use LFS proxy + Kafka + MinIO |
 | DEMO-SDK-004 | Document prerequisites + env vars | P1 | [x] | Port-forwards + topic names |
 | DEMO-SDK-005 | Add validation steps | P2 | [x] | Verify resolved payloads |
+| DEMO-SDK-006 | Harden E70 Makefile for proxy reload + readiness wait | P0 | [x] | `wait-ready`, `wait-http`, `run-all` |
+| DEMO-SDK-007 | Add diagnostics targets | P1 | [x] | `list-pods` includes svc/endpoints |
+| DEMO-SDK-008 | Require SDK + proxy rebuild on each run | P0 | [x] | `install-sdk` + `refresh-proxy` in `run` |
 
-**Run Plan (Video LFS stack):**
-1. Terminal A: `make lfs-demo-video` (keeps video LFS demo stack running).
+**Run Plan (LFS demo stack):**
+1. Terminal A: `LFS_DEMO_CLEANUP=0 make lfs-demo` (keeps stack running).
 2. Terminal B: port-forward LFS proxy, broker, MinIO.
-3. Terminal C: run E70 (Java) demo against the running stack.
-4. Terminal D: run E71 (Python) demo against the running stack.
+3. Terminal C: run E70 (Java) demo via `make run` or `make run-all`.
+4. Terminal D: run E71 (Python) demo against the same stack.
+
+### 6.6.1 SDK/Proxy Reliability Hardening
+
+**Goal:** Make the SDK demos stable and debuggable, with clear error handling and deterministic startup.
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| SDK-RH-001 | Add HTTP retry/backoff for transient network errors | P0 | [ ] | Java SDK producer retry on IO errors |
+| SDK-RH-002 | Add configurable HTTP timeouts in SDK | P1 | [x] | Constructor or env settings |
+| SDK-RH-003 | Surface structured error details to callers | P1 | [x] | Include status code + body |
+| SDK-RH-004 | Propagate request ID + error code | P1 | [x] | Expose X-Request-ID and error code |
+| PROXY-RH-001 | Return structured JSON errors from HTTP API | P0 | [x] | Error code + message + request ID |
+| PROXY-RH-002 | Distinguish backend errors (502/503) vs client errors (400) | P0 | [x] | Prevent EOF ambiguity |
+| PROXY-RH-003 | Reject HTTP requests when proxy not ready | P0 | [x] | Gate on `ready` before upload |
+| PROXY-RH-004 | Log request ID with HTTP errors | P1 | [x] | Correlate logs with SDK |
+| DEMO-RH-001 | Add smoke checks in Makefile (`/readyz`, port 8080) | P1 | [x] | `wait-ready`, `wait-http` |
+| DEMO-RH-002 | Add log correlation ID to SDK + proxy | P2 | [ ] | `X-Request-ID` header |
+| PROXY-RH-TEST-001 | Add HTTP error/ready tests | P1 | [x] | `cmd/lfs-proxy/http_test.go` |
 
 ### 6.6 LFS XML (IDoc) Demo
 
