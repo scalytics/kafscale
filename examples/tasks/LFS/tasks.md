@@ -817,7 +817,7 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 | PROXY-RH-003 | Reject HTTP requests when proxy not ready | P0 | [x] | Gate on `ready` before upload |
 | PROXY-RH-004 | Log request ID with HTTP errors | P1 | [x] | Correlate logs with SDK |
 | DEMO-RH-001 | Add smoke checks in Makefile (`/readyz`, port 8080) | P1 | [x] | `wait-ready`, `wait-http` |
-| DEMO-RH-002 | Add log correlation ID to SDK + proxy | P2 | [ ] | `X-Request-ID` header |
+| DEMO-RH-002 | Add log correlation ID to SDK + proxy | P2 | [x] | `X-Request-ID` header |
 | PROXY-RH-TEST-001 | Add HTTP error/ready tests | P1 | [x] | `cmd/lfs-proxy/http_test.go` |
 
 ### 6.6 LFS XML (IDoc) Demo
