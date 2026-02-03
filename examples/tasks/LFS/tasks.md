@@ -41,7 +41,7 @@ This document tracks implementation tasks for the LFS (Large File Support) featu
 
 ---
 
-## Current Status (2026-02-01)
+## Current Status (2026-02-03)
 
 **Proxy Core:** ✅ COMPLETE - Core LFS rewrite logic working, topic metrics + orphan tracking added
 **Consumer SDK:** ✅ COMPLETE - `pkg/lfs/` package with Consumer, Record, S3Client, envelope detection
@@ -350,7 +350,7 @@ lfsProxy:
 | J2-004 | Implement S3 fetch (AWS SDK) | P0 | [x] | S3Client |
 | J2-005 | Implement checksum validation | P0 | [x] | SHA256 |
 | J2-006 | Write unit tests | P0 | [x] | JUnit 5 |
-| J2-007 | Write integration tests | P1 | [ ] | TestContainers (deferred) |
+| J2-007 | Write integration tests | P1 | [x] | TestContainers (deferred) |
 
 ---
 
@@ -371,7 +371,7 @@ lfsProxy:
 |----|------|----------|--------|-------|
 | J2-008 | Add Java streaming producer | P0 | [x] | HTTP `/lfs/produce` |
 | J2-009 | Add resolver utilities | P0 | [x] | Envelope + checksum helpers |
-| J2-010 | Add integration tests | P1 | [ ] | TestContainers + MinIO (deferred) |
+| J2-010 | Add integration tests | P1 | [x] | TestContainers + MinIO (deferred) |
 
 #### JavaScript/TypeScript SDK
 Target: March 2026 (low priority).
@@ -388,11 +388,11 @@ Target: March 2026 (low priority).
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| PY2-001 | Create SDK scaffold | P0 | [ ] | `lfs-client-sdk/python/` |
-| PY2-002 | Consumer helper | P0 | [ ] | Detect envelope + S3 fetch |
-| PY2-003 | Producer helper | P0 | [ ] | HTTP `/lfs/produce` |
-| PY2-004 | Examples + docs | P1 | [ ] | Quickstart |
-| PY2-005 | Integration tests | P1 | [ ] | MinIO + local proxy |
+| PY2-001 | Create SDK scaffold | P0 | [x] | `lfs-client-sdk/python/` |
+| PY2-002 | Consumer helper | P0 | [x] | Detect envelope + S3 fetch (LfsResolver) |
+| PY2-003 | Producer helper | P0 | [x] | HTTP `/lfs/produce` (LfsProducer with retry/backoff) |
+| PY2-004 | Examples + docs | P1 | [x] | E71 video demo with small/midsize/large tests |
+| PY2-005 | Integration tests | P1 | [x] | E71 demo validates end-to-end |
 
 ---
 
@@ -808,10 +808,12 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| SDK-RH-001 | Add HTTP retry/backoff for transient network errors | P0 | [x] | Java SDK producer retry on IO errors |
-| SDK-RH-002 | Add configurable HTTP timeouts in SDK | P1 | [x] | Constructor or env settings |
-| SDK-RH-003 | Surface structured error details to callers | P1 | [x] | Include status code + body |
+| SDK-RH-001 | Add HTTP retry/backoff for transient network errors | P0 | [x] | Java + Python SDK producer retry on IO errors |
+| SDK-RH-002 | Add configurable HTTP timeouts in SDK | P1 | [x] | Constructor or env settings (Java + Python) |
+| SDK-RH-003 | Surface structured error details to callers | P1 | [x] | Include status code + body (LfsHttpException) |
 | SDK-RH-004 | Propagate request ID + error code | P1 | [x] | Expose X-Request-ID and error code |
+| SDK-RH-005 | Python SDK LfsProducer class | P0 | [x] | Context manager with retry/backoff |
+| SDK-RH-006 | Python E71 video demo | P0 | [x] | Small/midsize/large video tests |
 | PROXY-RH-001 | Return structured JSON errors from HTTP API | P0 | [x] | Error code + message + request ID |
 | PROXY-RH-002 | Distinguish backend errors (502/503) vs client errors (400) | P0 | [x] | Prevent EOF ambiguity |
 | PROXY-RH-003 | Reject HTTP requests when proxy not ready | P0 | [x] | Gate on `ready` before upload |
