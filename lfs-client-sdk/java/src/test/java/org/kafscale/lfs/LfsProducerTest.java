@@ -28,6 +28,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -63,6 +64,66 @@ class LfsProducerTest {
 
             assertThrows(LfsHttpException.class,
                     () -> producer.produce("demo-topic", null, new ByteArrayInputStream(new byte[0]), Map.of()));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+
+    @Test
+    void retriesOnServerError() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/lfs/produce", exchange -> {
+            int n = attempts.incrementAndGet();
+            if (n < 3) {
+                byte[] body = "boom".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(500, body.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(body);
+                }
+                return;
+            }
+            byte[] body = "{\"kfs_lfs\":1,\"bucket\":\"demo-bucket\",\"key\":\"obj-1\",\"sha256\":\"abc\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+        try {
+            URI endpoint = URI.create("http://localhost:" + server.getAddress().getPort() + "/lfs/produce");
+            LfsProducer producer = new LfsProducer(endpoint);
+
+            LfsEnvelope env = producer.produce("demo-topic", null, new ByteArrayInputStream(new byte[0]), Map.of());
+
+            assertEquals("demo-bucket", env.bucket);
+            assertEquals(3, attempts.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void doesNotRetryOnClientError() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/lfs/produce", exchange -> {
+            attempts.incrementAndGet();
+            byte[] body = "bad".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(400, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+        try {
+            URI endpoint = URI.create("http://localhost:" + server.getAddress().getPort() + "/lfs/produce");
+            LfsProducer producer = new LfsProducer(endpoint);
+
+            assertThrows(LfsHttpException.class,
+                    () -> producer.produce("demo-topic", null, new ByteArrayInputStream(new byte[0]), Map.of()));
+            assertEquals(1, attempts.get());
         } finally {
             server.stop(0);
         }

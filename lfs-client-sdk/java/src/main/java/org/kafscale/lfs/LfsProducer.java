@@ -41,7 +41,7 @@ public class LfsProducer {
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofMinutes(5);
     private static final int DEFAULT_RETRIES = 3;
-    private static final long RETRY_SLEEP_MILLIS = 500L;
+    private static final long RETRY_BASE_SLEEP_MILLIS = 200L;
 
     private final HttpClient client;
     private final URI endpoint;
@@ -114,7 +114,13 @@ public class LfsProducer {
                     String code = err != null ? err.code : "";
                     String message = err != null && err.message != null ? err.message : body;
                     String errRequestId = err != null && err.request_id != null ? err.request_id : requestId;
-                    throw new LfsHttpException(resp.statusCode(), code, message, errRequestId, body);
+                    LfsHttpException httpError = new LfsHttpException(resp.statusCode(), code, message, errRequestId, body);
+                    if (resp.statusCode() >= 500 && attempt < DEFAULT_RETRIES) {
+                        last = httpError;
+                        sleepBackoff(attempt);
+                        continue;
+                    }
+                    throw httpError;
                 }
                 return MAPPER.readValue(resp.body(), LfsEnvelope.class);
             } catch (java.io.IOException ex) {
@@ -122,12 +128,20 @@ public class LfsProducer {
                 if (attempt == DEFAULT_RETRIES) {
                     break;
                 }
-                Thread.sleep(RETRY_SLEEP_MILLIS);
+                sleepBackoff(attempt);
             }
         }
         if (last != null) {
             throw last;
         }
         throw new IllegalStateException("produce failed: no response");
+    }
+
+    private void sleepBackoff(int attempt) {
+        try {
+            Thread.sleep(RETRY_BASE_SLEEP_MILLIS * (1L << (attempt - 1)));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
