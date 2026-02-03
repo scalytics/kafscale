@@ -808,7 +808,7 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 
 | ID | Task | Priority | Status | Notes |
 |----|------|----------|--------|-------|
-| SDK-RH-001 | Add HTTP retry/backoff for transient network errors | P0 | [ ] | Java SDK producer retry on IO errors |
+| SDK-RH-001 | Add HTTP retry/backoff for transient network errors | P0 | [x] | Java SDK producer retry on IO errors |
 | SDK-RH-002 | Add configurable HTTP timeouts in SDK | P1 | [x] | Constructor or env settings |
 | SDK-RH-003 | Surface structured error details to callers | P1 | [x] | Include status code + body |
 | SDK-RH-004 | Propagate request ID + error code | P1 | [x] | Expose X-Request-ID and error code |
