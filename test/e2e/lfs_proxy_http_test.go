@@ -152,6 +152,234 @@ func TestLfsProxyHTTPProduce(t *testing.T) {
 	}
 }
 
+func TestLfsProxyHTTPProduceRestart(t *testing.T) {
+	const enableEnv = "KAFSCALE_E2E"
+	if os.Getenv(enableEnv) != "1" {
+		t.Skipf("set %s=1 to run integration harness", enableEnv)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
+
+	s3Server := newFakeS3Server(t)
+	t.Cleanup(s3Server.Close)
+
+	brokerAddr, received, closeBackend := startFakeKafkaBackend(t)
+	etcdEndpoints := startLfsProxyEtcd(t, "127.0.0.1", 9092, "http-restart")
+	t.Cleanup(closeBackend)
+
+	proxyPort := pickFreePort(t)
+	httpPort := pickFreePort(t)
+	healthPort := pickFreePort(t)
+
+	startProxy := func() (*exec.Cmd, *bytes.Buffer) {
+		proxyCmd := exec.CommandContext(ctx, "go", "run", filepath.Join(repoRoot(t), "cmd", "lfs-proxy"))
+		configureProcessGroup(proxyCmd)
+		proxyCmd.Env = append(os.Environ(),
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_ADDR=127.0.0.1:%s", proxyPort),
+			"KAFSCALE_LFS_PROXY_ADVERTISED_HOST=127.0.0.1",
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_ADVERTISED_PORT=%s", proxyPort),
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_HTTP_ADDR=127.0.0.1:%s", httpPort),
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_HEALTH_ADDR=127.0.0.1:%s", healthPort),
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_BACKENDS=%s", brokerAddr),
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_ETCD_ENDPOINTS=%s", strings.Join(etcdEndpoints, ",")),
+			"KAFSCALE_LFS_PROXY_S3_BUCKET=lfs-e2e",
+			"KAFSCALE_LFS_PROXY_S3_REGION=us-east-1",
+			fmt.Sprintf("KAFSCALE_LFS_PROXY_S3_ENDPOINT=%s", s3Server.URL),
+			"KAFSCALE_LFS_PROXY_S3_ACCESS_KEY=fake",
+			"KAFSCALE_LFS_PROXY_S3_SECRET_KEY=fake",
+			"KAFSCALE_LFS_PROXY_S3_FORCE_PATH_STYLE=true",
+			"KAFSCALE_LFS_PROXY_S3_ENSURE_BUCKET=true",
+		)
+		var proxyLogs bytes.Buffer
+		proxyCmd.Stdout = io.MultiWriter(&proxyLogs, mustLogFile(t, "lfs-proxy-http-restart.log"))
+		proxyCmd.Stderr = proxyCmd.Stdout
+		if err := proxyCmd.Start(); err != nil {
+			t.Fatalf("start lfs-proxy: %v", err)
+		}
+		return proxyCmd, &proxyLogs
+	}
+
+	proxyCmd, _ := startProxy()
+	defer func() {
+		_ = signalProcessGroup(proxyCmd, os.Interrupt)
+		_ = proxyCmd.Wait()
+	}()
+	waitForPortWithTimeout(t, "127.0.0.1:"+httpPort, 15*time.Second)
+
+	slowPayload := bytes.Repeat([]byte("a"), 1024*1024)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%s/lfs/produce", httpPort), newSlowReader(slowPayload, 32*1024, 10*time.Millisecond))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("X-Kafka-Topic", "http-restart")
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	clientErr := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil && resp != nil {
+			resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				clientErr <- nil
+				return
+			}
+			err = fmt.Errorf("status %d", resp.StatusCode)
+		}
+		clientErr <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	_ = signalProcessGroup(proxyCmd, os.Interrupt)
+	_ = proxyCmd.Wait()
+
+	<-clientErr
+
+	proxyCmd, _ = startProxy()
+	defer func() {
+		_ = signalProcessGroup(proxyCmd, os.Interrupt)
+		_ = proxyCmd.Wait()
+	}()
+	waitForPortWithTimeout(t, "127.0.0.1:"+httpPort, 15*time.Second)
+
+	payload := []byte("restart-ok")
+	req2, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%s/lfs/produce", httpPort), bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req2.Header.Set("X-Kafka-Topic", "http-restart")
+	req2.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("http produce failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case value := <-received:
+			var got lfs.Envelope
+			if err := json.Unmarshal(value, &got); err != nil {
+				t.Fatalf("expected envelope json: %v", err)
+			}
+			if got.Key == "" || got.Bucket == "" {
+				t.Fatalf("unexpected envelope: %+v", got)
+			}
+			return
+		case <-deadline:
+			t.Fatalf("timed out waiting for backend record")
+		}
+	}
+}
+
+func TestLfsProxyHTTPBackendUnavailable(t *testing.T) {
+	const enableEnv = "KAFSCALE_E2E"
+	if os.Getenv(enableEnv) != "1" {
+		t.Skipf("set %s=1 to run integration harness", enableEnv)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	t.Cleanup(cancel)
+
+	s3Server := newFakeS3Server(t)
+	t.Cleanup(s3Server.Close)
+
+	brokerAddr, _, closeBackend := startFakeKafkaBackend(t)
+	etcdEndpoints := startLfsProxyEtcd(t, "127.0.0.1", 9092, "http-backend-down")
+	t.Cleanup(closeBackend)
+
+	proxyPort := pickFreePort(t)
+	httpPort := pickFreePort(t)
+	healthPort := pickFreePort(t)
+	proxyCmd := exec.CommandContext(ctx, "go", "run", filepath.Join(repoRoot(t), "cmd", "lfs-proxy"))
+	configureProcessGroup(proxyCmd)
+	proxyCmd.Env = append(os.Environ(),
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_ADDR=127.0.0.1:%s", proxyPort),
+		"KAFSCALE_LFS_PROXY_ADVERTISED_HOST=127.0.0.1",
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_ADVERTISED_PORT=%s", proxyPort),
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_HTTP_ADDR=127.0.0.1:%s", httpPort),
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_HEALTH_ADDR=127.0.0.1:%s", healthPort),
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_BACKENDS=%s", brokerAddr),
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_ETCD_ENDPOINTS=%s", strings.Join(etcdEndpoints, ",")),
+		"KAFSCALE_LFS_PROXY_S3_BUCKET=lfs-e2e",
+		"KAFSCALE_LFS_PROXY_S3_REGION=us-east-1",
+		fmt.Sprintf("KAFSCALE_LFS_PROXY_S3_ENDPOINT=%s", s3Server.URL),
+		"KAFSCALE_LFS_PROXY_S3_ACCESS_KEY=fake",
+		"KAFSCALE_LFS_PROXY_S3_SECRET_KEY=fake",
+		"KAFSCALE_LFS_PROXY_S3_FORCE_PATH_STYLE=true",
+		"KAFSCALE_LFS_PROXY_S3_ENSURE_BUCKET=true",
+	)
+	proxyCmd.Stdout = io.MultiWriter(mustLogFile(t, "lfs-proxy-http-backend-down.log"))
+	proxyCmd.Stderr = proxyCmd.Stdout
+	if err := proxyCmd.Start(); err != nil {
+		t.Fatalf("start lfs-proxy: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = signalProcessGroup(proxyCmd, os.Interrupt)
+		_ = proxyCmd.Wait()
+	})
+	waitForPortWithTimeout(t, "127.0.0.1:"+httpPort, 15*time.Second)
+
+	closeBackend()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%s/lfs/produce", httpPort), bytes.NewReader([]byte("payload")))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("X-Kafka-Topic", "http-backend-down")
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("http produce failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusBadGateway {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+	var body httpErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if body.Code == "" {
+		t.Fatalf("expected error code in response")
+	}
+}
+
+func newSlowReader(payload []byte, chunk int, delay time.Duration) io.Reader {
+	return &slowReader{payload: payload, chunk: chunk, delay: delay}
+}
+
+type slowReader struct {
+	payload []byte
+	chunk   int
+	delay   time.Duration
+	idx     int
+}
+
+func (r *slowReader) Read(p []byte) (int, error) {
+	if r.idx >= len(r.payload) {
+		return 0, io.EOF
+	}
+	if r.delay > 0 {
+		time.Sleep(r.delay)
+	}
+	end := r.idx + r.chunk
+	if end > len(r.payload) {
+		end = len(r.payload)
+	}
+	n := copy(p, r.payload[r.idx:end])
+	r.idx += n
+	return n, nil
+}
+
 type fakeS3Server struct {
 	*httptest.Server
 	mu      sync.Mutex
@@ -407,4 +635,10 @@ func readRawRecordsInto(rs []kmsg.Record, in []byte) []kmsg.Record {
 		in = in[total:]
 	}
 	return rs
+}
+
+type httpErrorResponse struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	RequestID string `json:"request_id"`
 }
