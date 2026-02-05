@@ -30,12 +30,24 @@ Public endpoints include any externally reachable HTTP, gRPC, or Kafka endpoints
 ## Findings (LFS Proxy)
 
 ### HTTP /lfs/produce
+
+- Responses include `X-Request-ID` for correlation; errors return JSON with code/message/request_id.
 - Auth: Optional API key (when configured) — risk if exposed without key.
 - Input validation: Topic name validation enforced.
 - Integrity: Checksum algorithm configurable (sha256/md5/crc32/none); default sha256.
 - Integrity: Checksum mismatch deletes uploaded object; orphan tracked if delete fails.
 - Transport: Optional in-process TLS supported; otherwise rely on ingress/TLS termination.
 - Size limits: Enforced via max blob size.
+- Rate limiting: Not implemented.
+
+### HTTP /lfs/download
+
+- Mode: Supports `presign` (returns short-lived URL) and `stream` (proxy streams object).
+- Auth: Optional API key (when configured) — required for public exposure.
+- Input validation: Bucket and key validated; keys restricted to namespace and `/lfs/` prefix.
+- TTL: Presign TTL capped via `KAFSCALE_LFS_PROXY_DOWNLOAD_TTL_SEC` (default 120s).
+- Public URL: Optional `KAFSCALE_LFS_PROXY_S3_PUBLIC_ENDPOINT` signs URLs against the public S3 host for browser access.
+- Transport: Optional in-process TLS supported; otherwise rely on ingress/TLS termination.
 - Rate limiting: Not implemented.
 
 ### Kafka listener

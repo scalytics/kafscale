@@ -581,7 +581,7 @@ func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.R
 					}
 					if checksumHeader != "" && checksum != "" && !strings.EqualFold(checksumHeader, checksum) {
 						if err := p.s3Uploader.DeleteObject(ctx, key); err != nil {
-							p.trackOrphans([]orphanInfo{{Topic: topic.Name, Key: key}})
+							p.trackOrphans([]orphanInfo{{Topic: topic.Name, Key: key, RequestID: "", Reason: "checksum_mismatch_delete_failed"}})
 							return rewriteResult{}, fmt.Errorf("checksum mismatch; delete failed: %w", err)
 						}
 						return rewriteResult{}, &lfs.ChecksumError{Expected: checksumHeader, Actual: checksum}
@@ -606,7 +606,7 @@ func (p *lfsProxy) rewriteProduceRecords(ctx context.Context, header *protocol.R
 					rec.Value = encoded
 					rec.Headers = dropHeader(headers, "LFS_BLOB")
 					uploadBytes += int64(len(payload))
-					orphans = append(orphans, orphanInfo{Topic: topic.Name, Key: key})
+					orphans = append(orphans, orphanInfo{Topic: topic.Name, Key: key, RequestID: "", Reason: "kafka_produce_failed"})
 				}
 				if !recordChanged {
 					continue
@@ -940,8 +940,10 @@ type rewriteResult struct {
 }
 
 type orphanInfo struct {
-	Topic string
-	Key   string
+	Topic     string
+	Key       string
+	RequestID string
+	Reason    string
 }
 
 func (p *lfsProxy) trackOrphans(orphans []orphanInfo) {
@@ -950,7 +952,13 @@ func (p *lfsProxy) trackOrphans(orphans []orphanInfo) {
 	}
 	p.metrics.IncOrphans(len(orphans))
 	for _, orphan := range orphans {
-		p.logger.Warn("lfs orphaned object", "topic", orphan.Topic, "key", orphan.Key)
+		p.logger.Warn("lfs orphaned object", "topic", orphan.Topic, "key", orphan.Key, "reason", orphan.Reason)
+		// Emit orphan_detected event
+		reason := orphan.Reason
+		if reason == "" {
+			reason = "kafka_produce_failed"
+		}
+		p.tracker.EmitOrphanDetected(orphan.RequestID, "upload_failure", orphan.Topic, p.s3Bucket, orphan.Key, orphan.RequestID, reason, 0)
 	}
 }
 

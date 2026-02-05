@@ -40,26 +40,123 @@ limitations under the License.
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
+      font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+      background: radial-gradient(1200px circle at 10% 10%, #e0f2fe 0%, #f8fafc 45%, #f1f5f9 100%);
       color: var(--text);
       line-height: 1.6;
       padding: 2rem;
     }
 
     .container {
-      max-width: 800px;
+      max-width: 1100px;
       margin: 0 auto;
     }
 
     h1 {
-      font-size: 1.875rem;
-      margin-bottom: 0.5rem;
+      font-size: 2.125rem;
+      margin-bottom: 0.25rem;
+      letter-spacing: -0.02em;
     }
 
     .subtitle {
       color: var(--text-muted);
       margin-bottom: 2rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .gallery-list {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .gallery-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      background: #ffffff;
+    }
+
+    .gallery-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .gallery-title {
+      font-weight: 600;
+    }
+
+    .gallery-subtitle {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      z-index: 50;
+    }
+
+    .modal.open {
+      display: flex;
+    }
+
+    .modal-card {
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 0.75rem;
+      max-width: 900px;
+      width: 100%;
+      padding: 1rem;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .modal-title {
+      font-weight: 600;
+    }
+
+    .modal-close {
+      background: none;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
     }
 
     .card {
@@ -89,7 +186,7 @@ limitations under the License.
       font-size: 0.875rem;
     }
 
-    input[type="text"], input[type="url"] {
+    input[type="text"], input[type="url"], select, textarea {
       width: 100%;
       padding: 0.5rem 0.75rem;
       border: 1px solid var(--border);
@@ -97,7 +194,7 @@ limitations under the License.
       font-size: 0.875rem;
     }
 
-    input:focus {
+    input:focus, select:focus, textarea:focus {
       outline: none;
       border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
@@ -295,55 +392,138 @@ limitations under the License.
       background: var(--bg);
       color: var(--text-muted);
     }
+
+    .video-preview {
+      width: 100%;
+      border-radius: 12px;
+      background: #0f172a;
+      margin-top: 0.75rem;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem 1rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .meta-grid strong {
+      color: var(--text);
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🚀 Browser LFS SDK Demo</h1>
-    <p class="subtitle">Upload large files via the LFS proxy HTTP API - no Kafka client needed</p>
+    <h1>🎬 Team Movie Share</h1>
+    <p class="subtitle">Bring the clips that made you better. Share, review, and watch together.</p>
 
-    <!-- Configuration -->
-    <div class="card">
-      <h2>⚙️ Configuration</h2>
-      <div class="config-row">
-        <div class="form-group">
-          <label for="endpoint">LFS Proxy Endpoint</label>
-          <input type="url" id="endpoint" value="http://localhost:8080/lfs/produce" placeholder="http://localhost:8080/lfs/produce">
+    <div class="layout">
+      <div>
+        <div class="section-title">Shared</div>
+
+        <div class="card">
+          <h2>⚙️ Configuration</h2>
+          <div class="config-row">
+            <div class="form-group">
+              <label for="endpoint">LFS Proxy Endpoint</label>
+              <input type="url" id="endpoint" value="http://localhost:8080/lfs/produce" placeholder="http://localhost:8080/lfs/produce">
+            </div>
+            <div class="form-group">
+              <label for="topic">Kafka Topic</label>
+              <input type="text" id="topic" value="browser-uploads" placeholder="browser-uploads">
+            </div>
+          </div>
         </div>
-        <div class="form-group">
-          <label for="topic">Kafka Topic</label>
-          <input type="text" id="topic" value="browser-uploads" placeholder="browser-uploads">
+
+        <div class="card">
+          <h2>📤 Share a Clip</h2>
+          <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
+            Upload a movie or training clip to share with the team.
+          </p>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput">
+            <div class="drop-zone-icon">📁</div>
+            <div class="drop-zone-text">Drag & drop a file here or click to browse</div>
+          </div>
+          <div class="file-info" id="fileInfo">
+            <span class="file-name" id="fileName"></span>
+            <span class="file-size" id="fileSize"></span>
+          </div>
+          <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">0% uploaded</div>
+          </div>
+          <div style="margin-top: 1rem;">
+            <button class="btn btn-primary" id="uploadBtn" disabled>
+              <span>⬆️</span> Upload to LFS
+            </button>
+          </div>
+          <div class="result" id="uploadResult"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-title">Ready to View</div>
+
+        <div class="card">
+          <h2>🍿 Watch Queue</h2>
+          <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
+            Clips ready to view. Tap “Show” to open the player.
+          </p>
+          <div class="gallery-list" id="sharedList"></div>
+          <div style="margin-top: 1rem;">
+            <label for="envelopeJson">Add by Envelope JSON</label>
+            <textarea id="envelopeJson" rows="4" placeholder='{"kfs_lfs":1,"bucket":"kafscale","key":"default/topic/lfs/...","content_type":"video/mp4"}'></textarea>
+            <div style="margin-top: 0.5rem;">
+              <button class="btn btn-primary" id="loadEnvelopeBtn"><span>➕</span> Add to Queue</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>⬇️ Download Settings</h2>
+          <div class="config-row">
+            <div class="form-group">
+              <label for="lfsProxyUrl">LFS Proxy Base URL</label>
+              <input type="url" id="lfsProxyUrl" value="http://localhost:8080" placeholder="http://localhost:8080">
+            </div>
+            <div class="form-group">
+              <label for="downloadMode">Download Mode</label>
+              <select id="downloadMode">
+                <option value="stream">Stream via Proxy (recommended)</option>
+                <option value="presign">Presign (direct S3)</option>
+              </select>
+            </div>
+          </div>
+          <div class="config-row">
+            <div class="form-group">
+              <label for="s3Bucket">Bucket</label>
+              <input type="text" id="s3Bucket" value="kafscale" placeholder="kafscale">
+            </div>
+            <div class="form-group">
+              <label for="s3Key">Object Key</label>
+              <input type="text" id="s3Key" placeholder="default/topic/lfs/...">
+            </div>
+          </div>
+          <div class="config-row">
+            <div class="form-group">
+              <label for="downloadUrl">Direct Download URL (optional)</label>
+              <input type="url" id="downloadUrl" placeholder="https://... (presigned URL)">
+            </div>
+            <div class="form-group">
+              <label for="downloadExpires">Presign TTL (seconds)</label>
+              <input type="text" id="downloadExpires" value="120" placeholder="120">
+            </div>
+          </div>
+          <div class="result" id="downloadResult"></div>
         </div>
       </div>
     </div>
 
-    <!-- Upload -->
-    <div class="card">
-      <h2>📤 Upload File</h2>
-      <div class="drop-zone" id="dropZone">
-        <input type="file" id="fileInput">
-        <div class="drop-zone-icon">📁</div>
-        <div class="drop-zone-text">Drag & drop a file here or click to browse</div>
-      </div>
-      <div class="file-info" id="fileInfo">
-        <span class="file-name" id="fileName"></span>
-        <span class="file-size" id="fileSize"></span>
-      </div>
-      <div class="progress-container" id="progressContainer">
-        <div class="progress-bar">
-          <div class="progress-fill" id="progressFill"></div>
-        </div>
-        <div class="progress-text" id="progressText">0% uploaded</div>
-      </div>
-      <div style="margin-top: 1rem;">
-        <button class="btn btn-primary" id="uploadBtn" disabled>
-          <span>⬆️</span> Upload to LFS
-        </button>
-      </div>
-      <div class="result" id="uploadResult"></div>
-    </div>
-
-    <!-- End-to-End Test -->
     <div class="card">
       <h2>🧪 End-to-End Test <span class="badge">automated</span></h2>
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
@@ -353,6 +533,17 @@ limitations under the License.
         <span>▶️</span> Run E2E Tests
       </button>
       <div class="test-results" id="testResults"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="viewerModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title" id="viewerTitle">Now Playing</div>
+        <button class="modal-close" id="viewerClose">Close</button>
+      </div>
+      <video class="video-preview" id="viewerVideo" controls style="display:none;"></video>
+      <div class="result" id="viewerMeta"></div>
     </div>
   </div>
 
@@ -380,13 +571,20 @@ limitations under the License.
         this.retryDelay = config.retryDelay ?? 200;
       }
 
+      base64Encode(value) {
+        const bytes = new TextEncoder().encode(value);
+        let binary = '';
+        for (const b of bytes) binary += String.fromCharCode(b);
+        return btoa(binary);
+      }
+
       async produce(topic, payload, options = {}) {
         const headers = {
           'X-Kafka-Topic': topic,
           'X-Request-ID': crypto.randomUUID(),
         };
 
-        if (options.key) headers['X-Kafka-Key'] = options.key;
+        if (options.key) headers['X-Kafka-Key'] = this.base64Encode(options.key);
         if (options.headers) Object.assign(headers, options.headers);
 
         const blob = payload instanceof Blob ? payload : new Blob([payload]);
@@ -483,8 +681,25 @@ limitations under the License.
     const uploadResult = $('uploadResult');
     const runTestsBtn = $('runTestsBtn');
     const testResults = $('testResults');
+    const envelopeJson = $('envelopeJson');
+    const lfsProxyUrl = $('lfsProxyUrl');
+    const downloadMode = $('downloadMode');
+    const s3Bucket = $('s3Bucket');
+    const s3Key = $('s3Key');
+    const downloadUrl = $('downloadUrl');
+    const downloadExpires = $('downloadExpires');
+    const loadEnvelopeBtn = $('loadEnvelopeBtn');
+    const downloadResult = $('downloadResult');
+    const sharedList = $('sharedList');
+    const viewerModal = $('viewerModal');
+    const viewerClose = $('viewerClose');
+    const viewerVideo = $('viewerVideo');
+    const viewerMeta = $('viewerMeta');
+    const viewerTitle = $('viewerTitle');
 
     let selectedFile = null;
+    let lastEnvelope = null;
+    const sharedItems = [];
 
     // Drag and drop
     dropZone.addEventListener('click', () => fileInput.click());
@@ -519,6 +734,32 @@ limitations under the License.
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    function addToQueue(env, label = '') {
+      if (!env) return;
+      const key = env.key || '';
+      const title = label || key.split('/').pop() || 'Untitled';
+      sharedItems.unshift({ env, title });
+      renderQueue();
+    }
+
+    function renderQueue() {
+      if (!sharedItems.length) {
+        sharedList.innerHTML = '<div class="gallery-subtitle">No clips yet. Upload or paste an envelope to add one.</div>';
+        return;
+      }
+      sharedList.innerHTML = sharedItems.map((item, idx) => `
+        <div class="gallery-item" data-index="${idx}">
+          <div class="gallery-meta">
+            <div class="gallery-title">${item.title}</div>
+            <div class="gallery-subtitle">${item.env.key || ''}</div>
+          </div>
+          <button class="btn btn-primary" data-action="show">Show</button>
+        </div>
+      `).join('');
+    }
+
+    renderQueue();
+
     // Upload
     uploadBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
@@ -546,12 +787,170 @@ limitations under the License.
 
         uploadResult.className = 'result visible success';
         uploadResult.textContent = '✅ Upload successful!\n\n' + JSON.stringify(envelope, null, 2);
+        lastEnvelope = envelope;
+        envelopeJson.value = JSON.stringify(envelope, null, 2);
+        if (envelope.bucket) s3Bucket.value = envelope.bucket;
+        if (envelope.key) s3Key.value = envelope.key;
+        addToQueue(envelope, selectedFile?.name || '');
       } catch (error) {
         uploadResult.className = 'result visible error';
         uploadResult.textContent = '❌ Upload failed!\n\n' + (error.message || error);
       } finally {
         uploadBtn.disabled = false;
       }
+    });
+
+    // Download Test
+    function parseEnvelope() {
+      const raw = envelopeJson.value.trim();
+      if (!raw) return lastEnvelope;
+      try {
+        return JSON.parse(raw);
+      } catch (err) {
+        throw new Error('Invalid JSON for envelope');
+      }
+    }
+
+    function renderMetadata(env, extra = '') {
+      if (!env) {
+        downloadResult.className = 'result visible error';
+        downloadResult.textContent = '❌ No envelope loaded';
+        return;
+      }
+      const meta = `
+        <div class="meta-grid">
+          <div><strong>Bucket</strong> ${env.bucket || s3Bucket.value}</div>
+          <div><strong>Key</strong> ${env.key || s3Key.value}</div>
+          <div><strong>Size</strong> ${env.size ?? '-'}</div>
+          <div><strong>Content-Type</strong> ${env.content_type || env.contentType || '-'}</div>
+          <div><strong>Checksum</strong> ${(env.sha256 || env.checksum || '-')}</div>
+          <div><strong>Alg</strong> ${(env.checksum_alg || 'sha256')}</div>
+        </div>
+      `;
+      downloadResult.className = 'result visible success';
+      downloadResult.innerHTML = meta + (extra ? `<div style="margin-top:0.5rem;">${extra}</div>` : '');
+    }
+
+    loadEnvelopeBtn.addEventListener('click', () => {
+      try {
+        const env = parseEnvelope();
+        if (!env) throw new Error('No envelope provided');
+        lastEnvelope = env;
+        if (env.bucket) s3Bucket.value = env.bucket;
+        if (env.key) s3Key.value = env.key;
+        renderMetadata(env, 'Added to queue');
+        addToQueue(env, 'Shared clip');
+      } catch (err) {
+        downloadResult.className = 'result visible error';
+        downloadResult.textContent = `❌ ${err.message || err}`;
+      }
+    });
+
+    async function fetchObject(env) {
+      const key = env.key || s3Key.value;
+      if (!key) throw new Error('Missing object key');
+      const bucket = env.bucket || s3Bucket.value;
+      if (!bucket) throw new Error('Missing bucket');
+
+      const directUrl = downloadUrl.value.trim();
+      const mode = downloadMode.value;
+      const proxyBase = lfsProxyUrl.value.trim().replace(/\/+$/, '');
+      if (!proxyBase) throw new Error('Missing LFS proxy base URL');
+
+      let url = directUrl;
+      let resp = null;
+
+      if (!url) {
+        const ttl = parseInt(downloadExpires.value || '120', 10);
+        const body = JSON.stringify({
+          bucket,
+          key,
+          mode,
+          expires_seconds: Number.isFinite(ttl) ? ttl : 120
+        });
+        resp = await fetch(`${proxyBase}/lfs/download`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body
+        });
+        if (!resp.ok) {
+          const err = await resp.text();
+          throw new Error(`Download failed (${resp.status}): ${err}`);
+        }
+        if (mode === 'presign') {
+          const data = await resp.json();
+          url = data.url;
+        }
+      }
+
+      if (mode === 'stream') {
+        resp = resp || await fetch(`${proxyBase}/lfs/download`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bucket, key, mode: 'stream' })
+        });
+        if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
+      } else {
+        resp = await fetch(url);
+        if (!resp.ok && (resp.status === 403 || resp.status === 404)) {
+          const refresh = await fetch(`${proxyBase}/lfs/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bucket, key, mode: 'presign', expires_seconds: 120 })
+          });
+          if (refresh.ok) {
+            const data = await refresh.json();
+            url = data.url;
+            resp = await fetch(url);
+          }
+        }
+        if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
+      }
+
+      const blob = await resp.blob();
+      return { blob, contentType: env.content_type || env.contentType || blob.type || '', source: mode };
+    }
+
+    async function openViewer(item) {
+      try {
+        viewerTitle.textContent = item.title || 'Now Playing';
+        viewerMeta.className = 'result visible success';
+        viewerMeta.textContent = 'Loading...';
+        viewerVideo.style.display = 'none';
+        viewerModal.classList.add('open');
+
+        const { blob, contentType, source } = await fetchObject(item.env);
+        const objectUrl = URL.createObjectURL(blob);
+
+        if (contentType.startsWith('video/mp4')) {
+          viewerVideo.style.display = 'block';
+          viewerVideo.src = objectUrl;
+          viewerMeta.textContent = `Loaded ${formatBytes(blob.size)} via ${source}`;
+        } else {
+          viewerVideo.style.display = 'none';
+          viewerMeta.textContent = `Downloaded ${formatBytes(blob.size)} via ${source}`;
+        }
+      } catch (err) {
+        viewerMeta.className = 'result visible error';
+        viewerMeta.textContent = `❌ ${err.message || err}`;
+      }
+    }
+
+    sharedList.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action="show"]');
+      if (!button) return;
+      const card = event.target.closest('.gallery-item');
+      if (!card) return;
+      const index = Number(card.dataset.index);
+      if (Number.isNaN(index) || !sharedItems[index]) return;
+      openViewer(sharedItems[index]);
+    });
+
+    viewerClose.addEventListener('click', () => {
+      viewerModal.classList.remove('open');
+      viewerVideo.pause();
+      viewerVideo.removeAttribute('src');
+      viewerVideo.load();
     });
 
     // E2E Tests

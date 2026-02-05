@@ -22,7 +22,7 @@ This demo showcases LFS (Large File Support) for manufacturing/IoT workloads, de
 ## Quick Start
 
 ```bash
-make industrial-lfs-demo
+make lfs-demo-industrial
 ```
 
 ## What This Demonstrates

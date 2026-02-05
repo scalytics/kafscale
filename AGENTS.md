@@ -134,6 +134,11 @@ Codex MUST NOT generate:
 - LFS headers present
 - helm schema aligned
 
+## 9. Decision & Alternatives
+- When asked for feasibility, provide a success probability (0–100%) and brief rationale.
+- Always state the current blocker explicitly.
+- If a primary approach is blocked or high-risk, propose at least one viable alternative that achieves the same outcome.
+
 ---
 
 ## How to Use in Practice

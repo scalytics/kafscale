@@ -34,31 +34,46 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
 public final class E70JavaLfsDemo {
     public static void main(String[] args) throws Exception {
+        
         String httpEndpoint = env("LFS_HTTP_ENDPOINT", "http://localhost:8080/lfs/produce");
-        String topic = env("LFS_TOPIC", "video-raw");
-        String bootstrap = env("KAFKA_BOOTSTRAP", "localhost:9092");
-        String bucket = env("S3_BUCKET", "kafscale-lfs");
+        String topic = env("LFS_TOPIC", "lfs-demo-topic");
+        String bootstrap = env("KAFKA_CONSUMER_BOOTSTRAP", env("KAFKA_BOOTSTRAP", "localhost:9092"));
+        String bucket = env("S3_BUCKET", "kafscale");
         String s3Endpoint = env("S3_ENDPOINT", "http://localhost:9000");
         String s3Region = env("S3_REGION", "us-east-1");
         boolean pathStyle = Boolean.parseBoolean(env("S3_PATH_STYLE", "true"));
         String accessKey = env("AWS_ACCESS_KEY_ID", "minioadmin");
         String secretKey = env("AWS_SECRET_ACCESS_KEY", "minioadmin");
+        String inlineThreshold = env("LFS_INLINE_THRESHOLD", "102400");
 
-        byte[] payload = ("hello-lfs-" + Instant.now()).getBytes(StandardCharsets.UTF_8);
+        int payloadSize = Integer.parseInt(env("LFS_PAYLOAD_SIZE", "524288"));
+        String requestId = "e70-" + UUID.randomUUID();
+        byte[] payload = new byte[payloadSize];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = (byte) (i % 251);
+        }
         LfsProducer producer = new LfsProducer(URI.create(httpEndpoint));
+        Map<String, String> headers = Map.of(
+                "content-type", "application/octet-stream",
+                "LFS_BLOB", "true",
+                "LFS_INLINE_THRESHOLD", inlineThreshold,
+                "X-Request-ID", requestId
+        );
         LfsEnvelope envelope = producer.produce(
                 topic,
                 null,
                 new ByteArrayInputStream(payload),
-                Map.of("content-type", "text/plain")
+                headers,
+                payload.length
         );
-        System.out.println("Produced envelope: key=" + envelope.key + " sha256=" + envelope.sha256);
+        System.out.println("Produced envelope: key=" + envelope.key + " sha256=" + envelope.sha256 + " requestId=" + requestId);
 
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);

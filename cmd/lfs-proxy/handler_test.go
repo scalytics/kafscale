@@ -16,9 +16,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/KafScale/platform/pkg/lfs"
@@ -45,6 +47,14 @@ func (fakeS3API) AbortMultipartUpload(ctx context.Context, params *s3.AbortMulti
 }
 func (fakeS3API) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	return &s3.PutObjectOutput{}, nil
+}
+func (fakeS3API) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	body := io.NopCloser(bytes.NewReader([]byte("payload")))
+	return &s3.GetObjectOutput{
+		Body:          body,
+		ContentLength: aws.Int64(int64(len("payload"))),
+		ContentType:   aws.String("application/octet-stream"),
+	}, nil
 }
 
 func (fakeS3API) DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
@@ -74,6 +84,9 @@ func (f failingS3API) AbortMultipartUpload(ctx context.Context, params *s3.Abort
 	return nil, f.err
 }
 func (f failingS3API) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	return nil, f.err
+}
+func (f failingS3API) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	return nil, f.err
 }
 

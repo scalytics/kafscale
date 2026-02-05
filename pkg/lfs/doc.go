@@ -223,10 +223,10 @@ Validate server-computed checksum against a pre-computed value:
 
 The producer automatically retries on transient failures (5xx errors, 429 rate limits,
 connection errors). Non-retryable errors (4xx client errors, checksum mismatches)
-fail immediately.
+fail immediately. The retry delay is linear based on the attempt number.
 
 	producer := lfs.NewProducer("http://lfs-proxy:8080",
-	    lfs.WithRetry(5, 2*time.Second),  // 5 retries with exponential backoff
+	    lfs.WithRetry(5, 2*time.Second),  // retry with linear backoff
 	)
 */
 package lfs

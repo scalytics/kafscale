@@ -58,6 +58,26 @@ spec:
             - name: KAFSCALE_LFS_PROXY_HTTP_API_KEY
               value: "{{ .Values.lfsProxy.http.apiKey }}"
 {{- end }}
+{{- if and .Values.lfsProxy.http.cors .Values.lfsProxy.http.cors.enabled }}
+            - name: KAFSCALE_LFS_PROXY_HTTP_CORS_ENABLED
+              value: "true"
+{{- if .Values.lfsProxy.http.cors.allowOrigins }}
+            - name: KAFSCALE_LFS_PROXY_HTTP_CORS_ALLOW_ORIGINS
+              value: "{{ join "," .Values.lfsProxy.http.cors.allowOrigins }}"
+{{- end }}
+{{- if .Values.lfsProxy.http.cors.allowMethods }}
+            - name: KAFSCALE_LFS_PROXY_HTTP_CORS_ALLOW_METHODS
+              value: "{{ join "," .Values.lfsProxy.http.cors.allowMethods }}"
+{{- end }}
+{{- if .Values.lfsProxy.http.cors.allowHeaders }}
+            - name: KAFSCALE_LFS_PROXY_HTTP_CORS_ALLOW_HEADERS
+              value: "{{ join "," .Values.lfsProxy.http.cors.allowHeaders }}"
+{{- end }}
+{{- if .Values.lfsProxy.http.cors.exposeHeaders }}
+            - name: KAFSCALE_LFS_PROXY_HTTP_CORS_EXPOSE_HEADERS
+              value: "{{ join "," .Values.lfsProxy.http.cors.exposeHeaders }}"
+{{- end }}
+{{- end }}
 {{- if .Values.lfsProxy.health.enabled }}
             - name: KAFSCALE_LFS_PROXY_HEALTH_ADDR
               value: ":{{ .Values.lfsProxy.health.port }}"
@@ -156,6 +176,25 @@ spec:
             - name: KAFSCALE_LFS_PROXY_CHUNK_SIZE
               value: "{{ .Values.lfsProxy.s3.chunkSize }}"
 {{- end }}
+{{- if .Values.lfsProxy.tracker.enabled }}
+            - name: KAFSCALE_LFS_TRACKER_ENABLED
+              value: "true"
+            - name: KAFSCALE_LFS_TRACKER_TOPIC
+              value: "{{ .Values.lfsProxy.tracker.topic }}"
+            - name: KAFSCALE_LFS_TRACKER_BATCH_SIZE
+              value: "{{ .Values.lfsProxy.tracker.batchSize }}"
+            - name: KAFSCALE_LFS_TRACKER_FLUSH_MS
+              value: "{{ .Values.lfsProxy.tracker.flushMs }}"
+            - name: KAFSCALE_LFS_TRACKER_ENSURE_TOPIC
+              value: "{{ .Values.lfsProxy.tracker.ensureTopic }}"
+            - name: KAFSCALE_LFS_TRACKER_PARTITIONS
+              value: "{{ .Values.lfsProxy.tracker.partitions }}"
+            - name: KAFSCALE_LFS_TRACKER_REPLICATION_FACTOR
+              value: "{{ .Values.lfsProxy.tracker.replicationFactor }}"
+{{- else }}
+            - name: KAFSCALE_LFS_TRACKER_ENABLED
+              value: "false"
+{{- end }}
           ports:
             - name: kafka
               containerPort: {{ .Values.lfsProxy.service.port }}
@@ -169,6 +208,13 @@ spec:
             - name: health
               containerPort: {{ .Values.lfsProxy.health.port }}
               protocol: TCP
+{{- end }}
+{{- if .Values.lfsProxy.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.lfsProxy.metrics.port }}
+              protocol: TCP
+{{- end }}
+{{- if .Values.lfsProxy.health.enabled }}
           readinessProbe:
             httpGet:
               path: /readyz
@@ -183,11 +229,6 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
-{{- end }}
-{{- if .Values.lfsProxy.metrics.enabled }}
-            - name: metrics
-              containerPort: {{ .Values.lfsProxy.metrics.port }}
-              protocol: TCP
 {{- end }}
           resources:
 {{- if .Values.lfsProxy.resources }}

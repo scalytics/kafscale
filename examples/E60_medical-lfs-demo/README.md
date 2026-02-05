@@ -22,7 +22,7 @@ This demo showcases LFS (Large File Support) for healthcare workloads, demonstra
 ## Quick Start
 
 ```bash
-make medical-lfs-demo
+make lfs-demo-medical
 ```
 
 ## What This Demonstrates

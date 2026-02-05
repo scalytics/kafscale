@@ -22,7 +22,7 @@ This demo showcases LFS (Large File Support) for video/media workflows, demonstr
 ## Quick Start
 
 ```bash
-make video-lfs-demo
+make lfs-demo-video
 ```
 
 ## What This Demonstrates

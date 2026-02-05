@@ -21,10 +21,12 @@ LFS_ENDPOINT ?= http://localhost:8080/lfs/produce
 serve: ## Start the demo server (foreground)
 	@echo "Starting E72 Browser LFS Demo on http://localhost:$(PORT)"
 	@echo "Press Ctrl+C to stop"
+	@pgrep -f "http.server $(PORT)" | xargs kill 2>/dev/null || true
 	python3 -m http.server $(PORT)
 
 serve-bg: ## Start the demo server (background)
 	@echo "Starting E72 Browser LFS Demo on http://localhost:$(PORT)"
+	@pgrep -f "http.server $(PORT)" | xargs kill 2>/dev/null || true
 	@python3 -m http.server $(PORT) &
 	@sleep 1
 	@echo "Server running in background (PID: $$!)"

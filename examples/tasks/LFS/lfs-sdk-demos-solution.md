@@ -25,32 +25,37 @@ Provide two runnable examples that validate the **Java** and **Python** LFS SDKs
 
 ## Assumptions
 - The `lfs-demo` stack (kind + broker + LFS proxy + MinIO) stays up after execution.
-- Local host access is via `kubectl port-forward`.
+- Local host access is via `kubectl port-forward` or `make run-all` from the demo folder.
+
+## Rebuild Requirements
+- Each E70 run rebuilds the Java SDK and reloads the LFS proxy image.
+- The demo stack stays running; only the proxy deployment is refreshed.
+
 
 ## Run Order (One Terminal Keeps Stack Alive)
 1. Terminal A: bring the stack up once and keep it running.
    ```bash
-   make lfs-demo-video
+   LFS_DEMO_CLEANUP=0 make lfs-demo
    ```
 2. Terminal B: port-forward services for local SDKs.
    ```bash
-   kubectl -n kafscale-video port-forward svc/lfs-proxy 8080:8080
-   kubectl -n kafscale-video port-forward svc/kafscale-broker 9092:9092
-   kubectl -n kafscale-video port-forward svc/minio 9000:9000
+   kubectl -n kafscale-demo port-forward svc/lfs-proxy 8080:8080
+   kubectl -n kafscale-demo port-forward svc/kafscale-broker 9092:9092
+   kubectl -n kafscale-demo port-forward svc/minio 9000:9000
    ```
-3. Terminal C: run E70 or E71.
+3. Terminal C: run E70 (`make run` or `make run-all`) or E71.
 
 ## Demo Flow (Both E70/E71)
 1. Produce a blob via LFS proxy HTTP (`/lfs/produce`).
-2. Read pointer from Kafka topic (`video-raw`).
+2. Read pointer from Kafka topic (`lfs-demo-topic`).
 3. Resolve blob from MinIO (S3-compatible).
 4. Print payload size and envelope metadata.
 
 ## Environment Variables
 - `LFS_HTTP_ENDPOINT` (default `http://localhost:8080/lfs/produce`)
 - `KAFKA_BOOTSTRAP` (default `localhost:9092`)
-- `LFS_TOPIC` (default `video-raw`)
-- `S3_BUCKET` (default `kafscale-lfs`)
+- `LFS_TOPIC` (default `lfs-demo-topic`)
+- `S3_BUCKET` (default `kafscale`)
 - `S3_ENDPOINT` (default `http://localhost:9000`)
 - `S3_REGION` (default `us-east-1`)
 - `AWS_ACCESS_KEY_ID` (default `minioadmin`)

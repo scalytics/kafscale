@@ -109,3 +109,7 @@ examples/AGENTS.md
 **/*.pyo
 **/*.pyd
 **/*.egg-info/
+
+# Python virtual environments
+.venv/
+**/.venv/

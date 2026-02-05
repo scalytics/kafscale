@@ -24,6 +24,7 @@ A Single Page Application (SPA) demonstrating the browser-native LFS SDK for upl
 - **Drag & Drop Upload**: Select files via drag-and-drop or file browser
 - **Progress Tracking**: Real-time upload progress with percentage
 - **E2E Tests**: Automated tests for small (1KB), medium (100KB), and large (1MB) payloads
+- **Download Test**: Fetch a blob using the pointer record and preview MP4 files
 - **No Node.js Required**: Pure browser JavaScript using fetch/XHR APIs
 - **No librdkafka**: Direct HTTP upload to LFS proxy
 
@@ -52,6 +53,9 @@ kubectl -n kafscale-demo port-forward svc/minio 9000:9000 &
 # From repository root
 make e72-browser-demo
 
+# Or rebuild proxy + refresh demo + open SPA:
+make e72-browser-demo-test
+
 # Or manually:
 cd examples/E72_browser-lfs-sdk-demo
 python3 -m http.server 3000
@@ -69,11 +73,48 @@ python3 -m http.server 3000
 5. Click "Upload to LFS"
 6. View the returned envelope with S3 key and SHA-256 checksum
 
+### Download Test
+
+1. Paste the envelope JSON in the "Download Test" section (auto-filled after upload)
+2. Set the LFS proxy base URL (default: `http://localhost:8080`)
+3. Choose **Presign** (default) or **Stream via Proxy**
+4. Click **Fetch Object**
+
+If the content type is `video/mp4`, the file is shown in a video viewer. Otherwise, the UI shows pointer metadata and download details.
+
+Notes:
+- Presign mode returns a short-lived URL (TTL defaults to 120 seconds) and refreshes when expired.
+- Stream mode downloads through the LFS proxy without exposing S3 URLs.
+- If you have a presigned URL, paste it into "Direct Download URL" to bypass the proxy.
+- If presigned URLs point to an internal S3 host, set `KAFSCALE_LFS_PROXY_S3_PUBLIC_ENDPOINT` so the proxy rewrites the host for browsers.
+
 ### E2E Tests
 
 1. Click "Run E2E Tests"
 2. Watch as synthetic payloads (1KB, 100KB, 1MB) are uploaded
 3. Each test shows ✓ (pass) or ✗ (fail) with checksum verification
+
+## Large Uploads (SPA Improvement Plan)
+
+To make 6+ GB uploads resilient in the browser, we should move from single-request
+uploads to **chunked, resumable uploads** with retries:
+
+1) **Chunked upload protocol**
+   - Split files into fixed chunks (e.g., 16 MB).
+   - Send `Content-Range` and a stable upload ID per chunk.
+   - Proxy streams/assembles parts into S3 multipart uploads.
+
+2) **Resumable retries**
+   - Retry failed chunks with exponential backoff.
+   - Track completed parts locally and resume after interruption.
+
+3) **Progress & recovery**
+   - Update UI progress by bytes accepted per chunk.
+   - On failure, show which part failed and allow “resume”.
+
+4) **Backend alignment**
+   - Ensure part size ≥ 5 MB and total parts ≤ 10,000.
+   - Proxy already supports multipart uploads; we can extend the API to accept chunked uploads.
 
 ## Browser SDK API
 

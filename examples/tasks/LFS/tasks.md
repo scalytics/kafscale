@@ -397,8 +397,20 @@ Target: March 2026 (low priority).
 | JS-BROWSER-006 | Add retry/backoff | P0 | [x] | Same as Python/Java |
 | JS-BROWSER-010 | Create E72 SPA demo | P0 | [x] | Drag-drop upload + E2E tests |
 | JS-BROWSER-011 | Add `make e72-browser-demo` target | P0 | [x] | Serves demo on localhost:3000 |
+| JS-BROWSER-012 | Add chunked upload client | P0 | [ ] | Resumable multipart upload |
+| JS-BROWSER-013 | Add resumable retry logic | P0 | [ ] | Retry failed parts with backoff |
+| JS-BROWSER-014 | Add chunked upload progress + resume UI | P1 | [ ] | Show part failures + resume |
 | JS-BROWSER-020 | Build ESM + UMD bundles | P1 | [ ] | esbuild config |
 | JS-BROWSER-021 | Playwright E2E tests | P2 | [ ] | Automated browser tests |
+
+#### LFS Proxy Chunked Upload API
+
+| PROXY-CHUNK-001 | OpenAPI for multipart uploads | P0 | [x] | `/lfs/uploads` init/part/complete |
+| PROXY-CHUNK-002 | Implement upload init endpoint | P0 | [ ] | Create multipart upload session |
+| PROXY-CHUNK-003 | Implement upload part endpoint | P0 | [ ] | Stream part to S3 UploadPart |
+| PROXY-CHUNK-004 | Implement upload complete endpoint | P0 | [ ] | Complete S3 + produce envelope |
+| PROXY-CHUNK-005 | Implement upload abort endpoint | P0 | [ ] | Abort multipart + cleanup |
+| PROXY-CHUNK-006 | Add tracker events for chunked flow | P1 | [ ] | upload_started/completed/failed |
 
 #### Python SDK
 
@@ -857,3 +869,99 @@ All security hardening phases complete. See [security-tasks.md](../../../docs/lf
 3. Terminal C: upload XML via LFS proxy to `idoc-raw.<type>`.
 4. Terminal C: run `make lfs-demo-idoc` to explode XML into JSON topics.
 5. Verify `idoc-headers`, `idoc-items`, `idoc-partners`, `idoc-dates`, `idoc-status` topics.
+
+---
+
+## Phase 7: LFS Traceability & Admin Console
+
+**Goal:** Enable administrators to track blob operations, correlate Kafka pointers with S3 objects, and identify gaps in the system.
+
+**Strategic Context:** See [docs/lfs-proxy/traceability.md](../../../docs/lfs-proxy/traceability.md) for full requirements and API specifications.
+
+**STATUS: PHASE 7.1, 7.2 & 7.3 COMPLETE**
+
+### 7.1 LFS Ops Tracker (Proxy Side)
+
+**Location:** `cmd/lfs-proxy/`
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| TRACE-001 | Define tracker event Go types | P0 | [x] | `tracker_types.go` with upload/download/orphan events |
+| TRACE-002 | Implement LfsOpsTracker with franz-go | P0 | [x] | `tracker.go` with async batched writes |
+| TRACE-003 | Add tracker initialization to main.go | P0 | [x] | New env vars, circuit breaker |
+| TRACE-004 | Emit upload_started event in HTTP handler | P0 | [x] | Before S3 upload |
+| TRACE-005 | Emit upload_completed event in HTTP handler | P0 | [x] | After Kafka produce success |
+| TRACE-006 | Emit upload_failed event on errors | P0 | [x] | Include error_code, stage |
+| TRACE-007 | Emit download_requested event | P1 | [x] | In handleHTTPDownload |
+| TRACE-008 | Emit download_completed event | P1 | [x] | After presign/stream success |
+| TRACE-009 | Emit orphan_detected event | P0 | [x] | In trackOrphans() |
+| TRACE-010 | Unit tests for tracker | P0 | [x] | `tracker_test.go` |
+
+**Tracker Configuration:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KAFSCALE_LFS_TRACKER_ENABLED` | `true` | Enable event tracking |
+| `KAFSCALE_LFS_TRACKER_TOPIC` | `__lfs_ops_state` | Tracker topic name |
+| `KAFSCALE_LFS_TRACKER_BATCH_SIZE` | `100` | Events per batch |
+| `KAFSCALE_LFS_TRACKER_FLUSH_MS` | `100` | Max flush interval |
+
+### 7.2 Console Backend APIs
+
+**Location:** `internal/console/`
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| TRACE-020 | Create lfs_handlers.go | P0 | [x] | HTTP handlers for LFS APIs |
+| TRACE-021 | Implement /ui/api/lfs/status | P0 | [x] | Overall stats and proxy count |
+| TRACE-022 | Implement /ui/api/lfs/objects | P0 | [x] | Paginated object list |
+| TRACE-023 | Implement /ui/api/lfs/objects/{key} | P1 | [ ] | Object details + event history |
+| TRACE-024 | Implement /ui/api/lfs/topics | P0 | [x] | Per-topic statistics |
+| TRACE-025 | Implement /ui/api/lfs/events (SSE) | P1 | [x] | Real-time event stream |
+| TRACE-026 | Implement /ui/api/lfs/orphans | P1 | [x] | List detected orphans |
+| TRACE-027 | Create lfs_consumer.go | P1 | [x] | Consumer for __lfs_ops_state |
+| TRACE-028 | Create s3_client.go | P1 | [x] | S3 listing and presign |
+| TRACE-029 | Implement /ui/api/lfs/s3/browse | P1 | [x] | S3 object listing |
+| TRACE-030 | Implement /ui/api/lfs/s3/presign | P1 | [x] | Admin presigned URL generation |
+| TRACE-031 | Register LFS routes in server.go | P0 | [x] | Wire handlers to mux |
+| TRACE-032 | Initialize LFS components in main.go | P0 | [x] | S3 client, consumer |
+
+### 7.3 Console UI Dashboard
+
+**Location:** `ui/public/`
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| TRACE-040 | Create LFS dashboard page | P1 | [x] | LFS tab in `index.html` |
+| TRACE-041 | Implement LFS Overview panel | P1 | [x] | Stats cards, status indicator |
+| TRACE-042 | Implement object browser table | P1 | [x] | Filterable by topic |
+| TRACE-043 | Implement topic stats cards | P2 | [x] | Per-topic metrics grid |
+| TRACE-044 | Implement real-time events panel | P2 | [x] | SSE-driven live feed |
+| TRACE-045 | Implement S3 browser component | P2 | [x] | Directory navigation |
+| TRACE-046 | Add presigned URL download button | P2 | [x] | Admin access to blobs
+
+### 7.4 Testing & Documentation
+
+| ID | Task | Priority | Status | Notes |
+|----|------|----------|--------|-------|
+| TRACE-050 | Integration test for tracker events | P0 | [ ] | `lfs_tracker_test.go` |
+| TRACE-051 | E2E test for console LFS APIs | P1 | [ ] | `console_lfs_test.go` |
+| TRACE-052 | Performance test for tracker overhead | P1 | [ ] | <5% throughput impact |
+| TRACE-053 | Update traceability.md with final API | P1 | [ ] | Keep docs in sync |
+
+### 7.5 Milestones
+
+**M8: Traceability Alpha** ✅
+- [x] TRACE-001 through TRACE-010 complete (Tracker)
+- [x] Events emitted to `__lfs_ops_state` topic
+- [ ] Minimal performance impact verified
+
+**M9: Console LFS Dashboard** ✅
+- [x] TRACE-020 through TRACE-032 complete (Backend)
+- [x] TRACE-040 through TRACE-046 complete (UI)
+- [x] Admin can browse objects and view events
+
+**M10: Traceability Release**
+- [ ] All TRACE-* tasks complete
+- [ ] Documentation finalized
+- [ ] E2E tests passing

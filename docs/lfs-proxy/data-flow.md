@@ -120,6 +120,16 @@ Result: Kafka stores a **small pointer record** instead of the blob. The blob is
 
 ## Write Path B: HTTP `/lfs/produce`
 
+### Error Response Format
+On failure, the HTTP API returns JSON with a stable error code and a request ID:
+
+```
+{"code":"...","message":"...","request_id":"..."}
+```
+
+The response also includes `X-Request-ID` to correlate SDK and proxy logs.
+
+
 This path is for clients that do not speak Kafka protocol.
 
 1) **Client sends HTTP POST**  

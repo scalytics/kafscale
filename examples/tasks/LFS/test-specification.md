@@ -183,6 +183,10 @@ func TestEnvelopeDetection(t *testing.T) {
 | IT-S3-002 | Upload large blob | MinIO running | Upload 100MB | Object in S3, multipart used |
 | IT-S3-003 | Upload failure recovery | MinIO stops mid-upload | Upload 10MB | Error returned, no partial object |
 | IT-S3-004 | Checksum stored | MinIO running | Upload with checksum | Checksum in envelope matches |
+| IT-HTTP-CHUNK-001 | Initiate chunked upload | Proxy + S3 | POST /lfs/uploads | Upload session created |
+| IT-HTTP-CHUNK-002 | Upload parts | Proxy + S3 | PUT parts 1..N | Parts stored, ETags returned |
+| IT-HTTP-CHUNK-003 | Complete upload | Proxy + S3 + Kafka | POST complete | Envelope produced, object exists |
+| IT-HTTP-CHUNK-004 | Abort upload | Proxy + S3 | DELETE upload | Multipart aborted, no object |
 
 ```go
 func TestProxyS3Upload(t *testing.T) {
@@ -293,8 +297,11 @@ func TestConsumerResolution(t *testing.T) {
 | E2E-001 | Small LFS blob | Kafka + header | LFS wrapper | Content matches |
 | E2E-002 | Large LFS blob (100MB) | Kafka + header | LFS wrapper | Content matches, checksum valid |
 | E2E-003 | Streaming upload | HTTP SDK | LFS wrapper | Content matches |
+| E2E-003A | Chunked upload | Browser SDK | Chunked flow | Content matches |
+| E2E-003B | Chunked resume | Browser SDK | Interrupt mid-upload | Resume completes |
 | E2E-004 | Mixed traffic | LFS + non-LFS | LFS wrapper | Both work correctly |
 | E2E-005 | Multiple partitions | LFS to 3 partitions | LFS wrapper | All resolved |
+| E2E-006 | Proxy restart during HTTP upload | Restart proxy mid-upload | HTTP SDK | Retries succeed or clear error |
 
 ```go
 func TestE2EHappyPath(t *testing.T) {
@@ -342,6 +349,7 @@ func TestE2EHappyPath(t *testing.T) {
 | E2E-F03 | S3 down during consume | Stop MinIO during fetch | Consumer gets error |
 | E2E-F04 | Checksum mismatch | Corrupt S3 object | Consumer gets error |
 | E2E-F05 | Proxy crash recovery | Kill/restart proxy | Next request succeeds |
+| E2E-F06 | HTTP backend unavailable | Stop broker or S3 | HTTP SDK sees 502/503 |
 
 ```go
 func TestE2EChecksumMismatch(t *testing.T) {
@@ -507,6 +515,10 @@ jobs:
 ### Phase 2 (Streaming) Exit Criteria
 
 - [ ] Streaming upload E2E (E2E-003) passes
+- [ ] Chunked upload E2E (E2E-003A) passes
+- [ ] Chunked resume E2E (E2E-003B) passes
+- [ ] HTTP retry on proxy restart (E2E-006) passes
+- [ ] HTTP 5xx error mapping (E2E-F06) validated
 - [ ] Large file handling (1GB) works
 - [ ] Consumer wrapper Java implementation passes
 

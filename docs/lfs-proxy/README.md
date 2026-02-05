@@ -30,6 +30,8 @@ limitations under the License.
 - `demos.md` — LFS demo gallery and use-case promotion.
 - `sdk-roadmap.md` — SDK coverage and priorities for LFS clients.
 - `sdk-solution.md` — SDK design, packaging, builds, and testing.
+- `helm-deployment.md` — Helm chart deployment guide with full configuration reference.
+- `../api/lfs-proxy/openapi.yaml` — LFS proxy HTTP API specification.
 
 ## Sync Notes
 - Keep this index in sync when docs are added, removed, or renamed.

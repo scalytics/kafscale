@@ -490,7 +490,7 @@ echo "  scripts/verify-lfs-urls.sh records.txt"
 echo ""
 
 # Cleanup
-if [[ "${LFS_DEMO_CLEANUP:-1}" == "1" ]]; then
+if [[ "${LFS_DEMO_CLEANUP:-0}" == "1" ]]; then
   echo "Cleaning up LFS demo resources..."
   kubectl -n "${LFS_DEMO_NAMESPACE}" delete job lfs-demo-producer --ignore-not-found=true || true
   kubectl -n "${LFS_DEMO_NAMESPACE}" delete deployment lfs-proxy --ignore-not-found=true || true

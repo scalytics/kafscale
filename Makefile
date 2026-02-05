@@ -27,6 +27,7 @@ MCP_IMAGE ?= $(REGISTRY)/kafscale-mcp:dev
 E2E_CLIENT_IMAGE ?= $(REGISTRY)/kafscale-e2e-client:dev
 ETCD_TOOLS_IMAGE ?= $(REGISTRY)/kafscale-etcd-tools:dev
 ICEBERG_PROCESSOR_IMAGE ?= iceberg-processor:dev
+E72_BROWSER_DEMO_IMAGE ?= $(REGISTRY)/kafscale-e72-browser-demo:dev
 ICEBERG_REST_IMAGE ?= tabulario/iceberg-rest:1.6.0
 ICEBERG_REST_PORT ?= 8181
 ICEBERG_WAREHOUSE_BUCKET ?= kafscale-snapshots
@@ -188,6 +189,12 @@ $(STAMP_DIR)/sql-processor.image: $(SQL_PROCESSOR_SRCS)
 	@mkdir -p $(STAMP_DIR)
 	$(DOCKER_BUILD_CMD) $(DOCKER_BUILD_ARGS) -t $(SQL_PROCESSOR_IMAGE) -f addons/processors/sql-processor/Dockerfile addons/processors/sql-processor
 	@touch $(STAMP_DIR)/sql-processor.image
+
+docker-build-e72-browser-demo: ## Build E72 browser demo container image
+	$(DOCKER_BUILD_CMD) $(DOCKER_BUILD_ARGS) -t $(E72_BROWSER_DEMO_IMAGE) -f examples/E72_browser-lfs-sdk-demo/Dockerfile examples/E72_browser-lfs-sdk-demo
+
+docker-build-iceberg-processor: ## Build Iceberg processor container image
+	$(MAKE) -C addons/processors/iceberg-processor docker-build IMAGE=$(ICEBERG_PROCESSOR_IMAGE) DOCKER_BUILD_ARGS="$(DOCKER_BUILD_ARGS) --build-arg GO_BUILD_FLAGS='$(ICEBERG_PROCESSOR_BUILD_FLAGS)'"
 
 docker-clean: ## Remove local dev images and prune dangling Docker data
 	@echo "WARNING: this resets Docker build caches (buildx/builder) and removes local images."
@@ -641,6 +648,27 @@ e72-browser-demo: ## Run the E72 Browser LFS SDK demo (local, requires port-forw
 	@echo ""
 	cd examples/E72_browser-lfs-sdk-demo && $(MAKE) test
 
+E72_PROXY_LOCAL_PORT ?= 8080
+E72_MINIO_LOCAL_PORT ?= 9000
+E72_S3_PUBLIC_ENDPOINT ?= http://localhost:$(E72_MINIO_LOCAL_PORT)
+
+e72-browser-demo-test: ## Rebuild/redeploy LFS proxy, refresh demo, port-forward, and open the SPA.
+	@echo "=== E72 Browser LFS SDK Demo (Rebuild + Test) ==="
+	$(MAKE) docker-build-lfs-proxy
+	kind load docker-image $(LFS_PROXY_IMAGE) --name $(KAFSCALE_KIND_CLUSTER)
+	kubectl -n $(KAFSCALE_DEMO_NAMESPACE) set env deployment/lfs-proxy KAFSCALE_LFS_PROXY_S3_PUBLIC_ENDPOINT=$(E72_S3_PUBLIC_ENDPOINT)
+	kubectl -n $(KAFSCALE_DEMO_NAMESPACE) rollout restart deployment/lfs-proxy
+	kubectl -n $(KAFSCALE_DEMO_NAMESPACE) rollout status deployment/lfs-proxy --timeout=60s
+	kubectl -n $(KAFSCALE_DEMO_NAMESPACE) apply -f examples/E72_browser-lfs-sdk-demo/k8s-deploy.yaml
+	kubectl -n $(KAFSCALE_DEMO_NAMESPACE) rollout restart deployment/e72-browser-demo
+	kubectl -n $(KAFSCALE_DEMO_NAMESPACE) rollout status deployment/e72-browser-demo --timeout=60s
+	@pkill -f "port-forward.*$(E72_PROXY_LOCAL_PORT)" 2>/dev/null || true
+	@pkill -f "port-forward.*$(E72_MINIO_LOCAL_PORT)" 2>/dev/null || true
+	@kubectl -n $(KAFSCALE_DEMO_NAMESPACE) port-forward svc/lfs-proxy $(E72_PROXY_LOCAL_PORT):8080 >/dev/null 2>&1 &
+	@kubectl -n $(KAFSCALE_DEMO_NAMESPACE) port-forward svc/minio $(E72_MINIO_LOCAL_PORT):9000 >/dev/null 2>&1 &
+	@sleep 2
+	cd examples/E72_browser-lfs-sdk-demo && $(MAKE) test PORT=3000
+
 e72-browser-demo-k8s: ## Run the E72 Browser LFS SDK demo inside the kind cluster.
 	bash scripts/e72-browser-demo.sh
 
@@ -672,10 +700,77 @@ lint:
 ACT ?= act
 ACT_PLATFORM ?= linux/amd64
 ACT_FLAGS ?= --container-architecture $(ACT_PLATFORM)
+ACT_IMAGE ?= local/act-runner:latest
+STAGE_REGISTRY ?= 192.168.0.131:5100
+STAGE_TAG ?= stage
+STAGE_PLATFORMS ?= linux/amd64,linux/arm64
+STAGE_NO_CACHE ?= 1
+STAGE_SOURCE_REGISTRY ?= ghcr.io/kafscale
+STAGE_SOURCE_TAG ?= dev
+STAGE_IMAGES ?= kafscale-broker kafscale-lfs-proxy kafscale-operator kafscale-console \
+	kafscale-etcd-tools kafscale-iceberg-processor kafscale-sql-processor \
+	kafscale-e72-browser-demo
 
 act-runnable: ## Run runnable GitHub Actions locally (ci.yml, docker.yml)
 	$(ACT) -W .github/workflows/ci.yml $(ACT_FLAGS)
 	$(ACT) -W .github/workflows/docker.yml $(ACT_FLAGS)
+
+act-image: ## Build local act runner image.
+	docker build -t $(ACT_IMAGE) .devcontainer/act-runner
+
+stage-release: ## Push stage images to local registry (local buildx).
+	STAGE_REGISTRY=$(STAGE_REGISTRY) STAGE_TAG=$(STAGE_TAG) STAGE_PLATFORMS=$(STAGE_PLATFORMS) STAGE_NO_CACHE=$(STAGE_NO_CACHE) \
+		bash scripts/stage-release-local.sh
+
+stage-release-push: docker-build docker-build-lfs-proxy docker-build-iceberg-processor docker-build-e72-browser-demo ## Retag and push locally built images to STAGE_REGISTRY.
+	@set -e; \
+	for img in $(STAGE_IMAGES); do \
+		dst="$(STAGE_REGISTRY)/kafscale/$${img}:$(STAGE_TAG)"; \
+		found=0; \
+		for src in \
+			"$(STAGE_SOURCE_REGISTRY)/$${img}:$(STAGE_SOURCE_TAG)" \
+			"$${img}:$(STAGE_SOURCE_TAG)" \
+			"$$(case $$img in \
+				kafscale-broker) echo $(BROKER_IMAGE) ;; \
+				kafscale-operator) echo $(OPERATOR_IMAGE) ;; \
+				kafscale-console) echo $(CONSOLE_IMAGE) ;; \
+				kafscale-lfs-proxy) echo $(LFS_PROXY_IMAGE) ;; \
+				kafscale-etcd-tools) echo $(ETCD_TOOLS_IMAGE) ;; \
+				kafscale-sql-processor) echo $(SQL_PROCESSOR_IMAGE) ;; \
+				kafscale-iceberg-processor) echo $(ICEBERG_PROCESSOR_IMAGE) ;; \
+				kafscale-e72-browser-demo) echo $(E72_BROWSER_DEMO_IMAGE) ;; \
+				*) echo "" ;; \
+			esac)"; do \
+			[ -z "$$src" ] && continue; \
+			if docker image inspect "$$src" >/dev/null 2>&1; then \
+				echo "Pushing $$src -> $$dst"; \
+				docker tag "$$src" "$$dst"; \
+				docker push "$$dst"; \
+				found=1; \
+				break; \
+			fi; \
+		done; \
+		if [ "$$found" -ne 1 ]; then \
+			echo "Skipping $$img (source image not found)"; \
+		fi; \
+	done
+
+stage-release-clean: ## Remove stage release builder and prune local stage images.
+	@docker buildx rm stage-release-builder >/dev/null 2>&1 || true
+	@docker image rm -f $(E72_BROWSER_DEMO_IMAGE) $(BROKER_IMAGE) $(OPERATOR_IMAGE) $(CONSOLE_IMAGE) \
+		$(LFS_PROXY_IMAGE) $(ETCD_TOOLS_IMAGE) $(SQL_PROCESSOR_IMAGE) $(ICEBERG_PROCESSOR_IMAGE) >/dev/null 2>&1 || true
+
+stage-release-act: act-image ## Push stage images to local registry via workflow (containerized act).
+	docker run --rm \
+		--privileged \
+		--network host \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v $(PWD):/workspace \
+		-w /workspace \
+		$(ACT_IMAGE) \
+		-W .github/workflows/stage-release.yml $(ACT_FLAGS) \
+		-P ubuntu-latest=catthehacker/ubuntu:act-latest \
+		--input registry=$(STAGE_REGISTRY) --input tag=$(STAGE_TAG)
 
 IDOC_EXPLODE_BIN ?= bin/idoc-explode
 

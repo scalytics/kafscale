@@ -23,9 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/KafScale/platform/pkg/lfs"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -33,10 +35,13 @@ import (
 	"github.com/aws/smithy-go"
 )
 
+const minMultipartChunkSize int64 = 5 * 1024 * 1024
+
 type s3Config struct {
 	Bucket          string
 	Region          string
 	Endpoint        string
+	PublicEndpoint  string
 	AccessKeyID     string
 	SecretAccessKey string
 	SessionToken    string
@@ -50,9 +55,14 @@ type s3API interface {
 	CompleteMultipartUpload(ctx context.Context, params *s3.CompleteMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error)
 	AbortMultipartUpload(ctx context.Context, params *s3.AbortMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error)
 	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
 	CreateBucket(ctx context.Context, params *s3.CreateBucketInput, optFns ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+}
+
+type s3PresignAPI interface {
+	PresignGetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
 }
 
 type s3Uploader struct {
@@ -60,6 +70,17 @@ type s3Uploader struct {
 	region    string
 	chunkSize int64
 	api       s3API
+	presign   s3PresignAPI
+}
+
+func normalizeChunkSize(chunk int64) int64 {
+	if chunk <= 0 {
+		chunk = defaultChunkSize
+	}
+	if chunk < minMultipartChunkSize {
+		chunk = minMultipartChunkSize
+	}
+	return chunk
 }
 
 func newS3Uploader(ctx context.Context, cfg s3Config) (*s3Uploader, error) {
@@ -69,9 +90,7 @@ func newS3Uploader(ctx context.Context, cfg s3Config) (*s3Uploader, error) {
 	if cfg.Region == "" {
 		return nil, errors.New("s3 region required")
 	}
-	if cfg.ChunkSize <= 0 {
-		cfg.ChunkSize = defaultChunkSize
-	}
+	cfg.ChunkSize = normalizeChunkSize(cfg.ChunkSize)
 
 	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
@@ -100,13 +119,61 @@ func newS3Uploader(ctx context.Context, cfg s3Config) (*s3Uploader, error) {
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.UsePathStyle = cfg.ForcePathStyle
 	})
+	presignCfg := awsCfg
+	if cfg.PublicEndpoint != "" {
+		publicResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+			if service == s3.ServiceID {
+				return aws.Endpoint{
+					URL:           cfg.PublicEndpoint,
+					PartitionID:   "aws",
+					SigningRegion: cfg.Region,
+				}, nil
+			}
+			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
+		})
+		presignCfg.EndpointResolverWithOptions = publicResolver
+	}
+	presignClient := s3.NewFromConfig(presignCfg, func(o *s3.Options) {
+		o.UsePathStyle = cfg.ForcePathStyle
+	})
+	presigner := s3.NewPresignClient(presignClient)
 
 	return &s3Uploader{
 		bucket:    cfg.Bucket,
 		region:    cfg.Region,
 		chunkSize: cfg.ChunkSize,
 		api:       client,
+		presign:   presigner,
 	}, nil
+}
+
+func (u *s3Uploader) PresignGetObject(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	if key == "" {
+		return "", errors.New("s3 key required")
+	}
+	if u.presign == nil {
+		return "", errors.New("presign client not configured")
+	}
+	out, err := u.presign.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(u.bucket),
+		Key:    aws.String(key),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = ttl
+	})
+	if err != nil {
+		return "", err
+	}
+	return out.URL, nil
+}
+
+func (u *s3Uploader) GetObject(ctx context.Context, key string) (*s3.GetObjectOutput, error) {
+	if key == "" {
+		return nil, errors.New("s3 key required")
+	}
+	return u.api.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(u.bucket),
+		Key:    aws.String(key),
+	})
 }
 
 func (u *s3Uploader) HeadBucket(ctx context.Context) error {
@@ -186,10 +253,58 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 	if reader == nil {
 		return "", "", "", 0, errors.New("reader required")
 	}
-	if u.chunkSize <= 0 {
-		u.chunkSize = defaultChunkSize
+	u.chunkSize = normalizeChunkSize(u.chunkSize)
+
+	checksumAlg := alg
+	if checksumAlg == "" {
+		checksumAlg = lfs.ChecksumSHA256
 	}
 
+	// Read first chunk to determine if we need multipart upload
+	firstBuf := make([]byte, u.chunkSize)
+	firstN, firstErr := io.ReadFull(reader, firstBuf)
+	if firstErr != nil && firstErr != io.EOF && firstErr != io.ErrUnexpectedEOF {
+		return "", "", "", 0, firstErr
+	}
+	if firstN == 0 {
+		return "", "", "", 0, errors.New("empty upload")
+	}
+
+	firstReadHitEOF := firstErr == io.EOF || firstErr == io.ErrUnexpectedEOF
+
+	// If data fits in one chunk and is smaller than minMultipartChunkSize, use PutObject
+	if firstReadHitEOF && int64(firstN) < minMultipartChunkSize {
+		data := firstBuf[:firstN]
+		shaHasher := sha256.New()
+		shaHasher.Write(data)
+		shaHex := hex.EncodeToString(shaHasher.Sum(nil))
+
+		checksum := ""
+		if checksumAlg != lfs.ChecksumNone {
+			if checksumAlg == lfs.ChecksumSHA256 {
+				checksum = shaHex
+			} else {
+				computed, err := lfs.ComputeChecksum(checksumAlg, data)
+				if err != nil {
+					return "", "", "", 0, err
+				}
+				checksum = computed
+			}
+		}
+
+		_, err := u.api.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:        aws.String(u.bucket),
+			Key:           aws.String(key),
+			Body:          bytes.NewReader(data),
+			ContentLength: aws.Int64(int64(firstN)),
+		})
+		if err != nil {
+			return "", "", "", 0, fmt.Errorf("put object: %w", err)
+		}
+		return shaHex, checksum, string(checksumAlg), int64(firstN), nil
+	}
+
+	// Use multipart upload for larger files
 	createResp, err := u.api.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(u.bucket),
 		Key:    aws.String(key),
@@ -203,10 +318,6 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 	}
 
 	shaHasher := sha256.New()
-	checksumAlg := alg
-	if checksumAlg == "" {
-		checksumAlg = lfs.ChecksumSHA256
-	}
 	var checksumHasher interface {
 		Write([]byte) (int, error)
 		Sum([]byte) []byte
@@ -224,12 +335,37 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 		}
 	}
 	parts := make([]types.CompletedPart, 0, 4)
-	buf := make([]byte, u.chunkSize)
 	partNum := int32(1)
 	var total int64
 
+	// Upload first chunk
+	total += int64(firstN)
+	if maxSize > 0 && total > maxSize {
+		_ = u.abortUpload(ctx, key, *uploadID)
+		return "", "", "", total, fmt.Errorf("blob size %d exceeds max %d", total, maxSize)
+	}
+	shaHasher.Write(firstBuf[:firstN])
+	if checksumHasher != nil && checksumHasher != shaHasher {
+		checksumHasher.Write(firstBuf[:firstN])
+	}
+	partResp, err := u.api.UploadPart(ctx, &s3.UploadPartInput{
+		Bucket:     aws.String(u.bucket),
+		Key:        aws.String(key),
+		UploadId:   uploadID,
+		PartNumber: aws.Int32(partNum),
+		Body:       bytes.NewReader(firstBuf[:firstN]),
+	})
+	if err != nil {
+		_ = u.abortUpload(ctx, key, *uploadID)
+		return "", "", "", total, fmt.Errorf("upload part %d: %w", partNum, err)
+	}
+	parts = append(parts, types.CompletedPart{ETag: partResp.ETag, PartNumber: aws.Int32(partNum)})
+	partNum++
+
+	// Continue reading remaining chunks
+	buf := make([]byte, u.chunkSize)
 	for {
-		n, readErr := reader.Read(buf)
+		n, readErr := io.ReadFull(reader, buf)
 		if n > 0 {
 			total += int64(n)
 			if maxSize > 0 && total > maxSize {
@@ -263,15 +399,13 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 		if readErr == io.EOF {
 			break
 		}
+		if readErr == io.ErrUnexpectedEOF {
+			break
+		}
 		if readErr != nil {
 			_ = u.abortUpload(ctx, key, *uploadID)
 			return "", "", "", total, readErr
 		}
-	}
-
-	if len(parts) == 0 {
-		_ = u.abortUpload(ctx, key, *uploadID)
-		return "", "", "", total, errors.New("empty upload")
 	}
 
 	_, err = u.api.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
@@ -296,6 +430,86 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 		}
 	}
 	return shaHex, checksum, string(checksumAlg), total, nil
+}
+
+func (u *s3Uploader) StartMultipartUpload(ctx context.Context, key, contentType string) (string, error) {
+	if key == "" {
+		return "", errors.New("s3 key required")
+	}
+	input := &s3.CreateMultipartUploadInput{
+		Bucket: aws.String(u.bucket),
+		Key:    aws.String(key),
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	resp, err := u.api.CreateMultipartUpload(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("create multipart upload: %w", err)
+	}
+	if resp.UploadId == nil || *resp.UploadId == "" {
+		return "", errors.New("missing upload id")
+	}
+	return *resp.UploadId, nil
+}
+
+func (u *s3Uploader) UploadPart(ctx context.Context, key, uploadID string, partNumber int32, payload []byte) (string, error) {
+	if key == "" {
+		return "", errors.New("s3 key required")
+	}
+	if uploadID == "" {
+		return "", errors.New("upload id required")
+	}
+	resp, err := u.api.UploadPart(ctx, &s3.UploadPartInput{
+		Bucket:     aws.String(u.bucket),
+		Key:        aws.String(key),
+		UploadId:   aws.String(uploadID),
+		PartNumber: aws.Int32(partNumber),
+		Body:       bytes.NewReader(payload),
+	})
+	if err != nil {
+		return "", fmt.Errorf("upload part %d: %w", partNumber, err)
+	}
+	if resp.ETag == nil || *resp.ETag == "" {
+		return "", errors.New("missing etag")
+	}
+	return *resp.ETag, nil
+}
+
+func (u *s3Uploader) CompleteMultipartUpload(ctx context.Context, key, uploadID string, parts []types.CompletedPart) error {
+	if key == "" {
+		return errors.New("s3 key required")
+	}
+	if uploadID == "" {
+		return errors.New("upload id required")
+	}
+	_, err := u.api.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:   aws.String(u.bucket),
+		Key:      aws.String(key),
+		UploadId: aws.String(uploadID),
+		MultipartUpload: &types.CompletedMultipartUpload{
+			Parts: parts,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("complete multipart upload: %w", err)
+	}
+	return nil
+}
+
+func (u *s3Uploader) AbortMultipartUpload(ctx context.Context, key, uploadID string) error {
+	if key == "" {
+		return errors.New("s3 key required")
+	}
+	if uploadID == "" {
+		return errors.New("upload id required")
+	}
+	_, err := u.api.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(u.bucket),
+		Key:      aws.String(key),
+		UploadId: aws.String(uploadID),
+	})
+	return err
 }
 
 func (u *s3Uploader) multipartUpload(ctx context.Context, key string, payload []byte) error {

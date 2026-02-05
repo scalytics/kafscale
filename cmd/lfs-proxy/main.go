@@ -49,6 +49,8 @@ const (
 	defaultHTTPMaxHeaderBytes        = 1 << 20
 	defaultHTTPShutdownTimeoutSec    = 10
 	defaultTopicMaxLength            = 249
+	defaultDownloadTTLSec            = 120
+	defaultUploadSessionTTLSec       = 3600
 )
 
 type lfsProxy struct {
@@ -67,6 +69,7 @@ type lfsProxy struct {
 	httpMaxHeaderBytes   int
 	httpShutdownTimeout  time.Duration
 	topicMaxLength       int
+	downloadTTLMax       time.Duration
 	checksumAlg          string
 	backendTLSConfig     *tls.Config
 	backendSASLMechanism string
@@ -92,6 +95,13 @@ type lfsProxy struct {
 	s3Healthy   uint32
 	corrID      uint32
 	httpAPIKey  string
+
+	// LFS Operations Tracker
+	tracker *LfsOpsTracker
+
+	uploadSessionTTL time.Duration
+	uploadMu         sync.Mutex
+	uploadSessions   map[string]*uploadSession
 }
 
 func main() {
@@ -123,6 +133,7 @@ func main() {
 	s3Bucket := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_BUCKET"))
 	s3Region := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_REGION"))
 	s3Endpoint := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_ENDPOINT"))
+	s3PublicURL := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_PUBLIC_ENDPOINT"))
 	s3AccessKey := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_ACCESS_KEY"))
 	s3SecretKey := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_SECRET_KEY"))
 	s3SessionToken := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_S3_SESSION_TOKEN"))
@@ -140,7 +151,12 @@ func main() {
 	httpHeaderTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_HEADER_TIMEOUT_SEC", defaultHTTPHeaderTimeoutSec)) * time.Second
 	httpMaxHeaderBytes := envInt("KAFSCALE_LFS_PROXY_HTTP_MAX_HEADER_BYTES", defaultHTTPMaxHeaderBytes)
 	httpShutdownTimeout := time.Duration(envInt("KAFSCALE_LFS_PROXY_HTTP_SHUTDOWN_TIMEOUT_SEC", defaultHTTPShutdownTimeoutSec)) * time.Second
+	uploadSessionTTL := time.Duration(envInt("KAFSCALE_LFS_PROXY_UPLOAD_SESSION_TTL_SEC", defaultUploadSessionTTLSec)) * time.Second
 	topicMaxLength := envInt("KAFSCALE_LFS_PROXY_TOPIC_MAX_LENGTH", defaultTopicMaxLength)
+	downloadTTLSec := envInt("KAFSCALE_LFS_PROXY_DOWNLOAD_TTL_SEC", defaultDownloadTTLSec)
+	if downloadTTLSec <= 0 {
+		downloadTTLSec = defaultDownloadTTLSec
+	}
 	checksumAlg := envOrDefault("KAFSCALE_LFS_PROXY_CHECKSUM_ALGO", "sha256")
 	backendTLSConfig, err := buildBackendTLSConfig()
 	if err != nil {
@@ -174,6 +190,7 @@ func main() {
 		Bucket:          s3Bucket,
 		Region:          s3Region,
 		Endpoint:        s3Endpoint,
+		PublicEndpoint:  s3PublicURL,
 		AccessKeyID:     s3AccessKey,
 		SecretAccessKey: s3SecretKey,
 		SessionToken:    s3SessionToken,
@@ -191,6 +208,33 @@ func main() {
 	}
 
 	metrics := newLfsMetrics()
+
+	// LFS Ops Tracker configuration
+	trackerEnabled := envBoolDefault("KAFSCALE_LFS_TRACKER_ENABLED", true)
+	trackerTopic := envOrDefault("KAFSCALE_LFS_TRACKER_TOPIC", defaultTrackerTopic)
+	trackerBatchSize := envInt("KAFSCALE_LFS_TRACKER_BATCH_SIZE", defaultTrackerBatchSize)
+	trackerFlushMs := envInt("KAFSCALE_LFS_TRACKER_FLUSH_MS", defaultTrackerFlushMs)
+	trackerEnsureTopic := envBoolDefault("KAFSCALE_LFS_TRACKER_ENSURE_TOPIC", true)
+	trackerPartitions := envInt("KAFSCALE_LFS_TRACKER_PARTITIONS", defaultTrackerPartitions)
+	trackerReplication := envInt("KAFSCALE_LFS_TRACKER_REPLICATION_FACTOR", defaultTrackerReplication)
+
+	trackerCfg := TrackerConfig{
+		Enabled:           trackerEnabled,
+		Topic:             trackerTopic,
+		Brokers:           backends,
+		BatchSize:         trackerBatchSize,
+		FlushMs:           trackerFlushMs,
+		ProxyID:           proxyID,
+		EnsureTopic:       trackerEnsureTopic,
+		Partitions:        trackerPartitions,
+		ReplicationFactor: trackerReplication,
+	}
+
+	tracker, err := NewLfsOpsTracker(ctx, trackerCfg, logger)
+	if err != nil {
+		logger.Warn("lfs ops tracker init failed, continuing without tracker", "error", err)
+		tracker = &LfsOpsTracker{config: trackerCfg, logger: logger}
+	}
 
 	p := &lfsProxy{
 		addr:                 addr,
@@ -217,6 +261,7 @@ func main() {
 		httpMaxHeaderBytes:   httpMaxHeaderBytes,
 		httpShutdownTimeout:  httpShutdownTimeout,
 		topicMaxLength:       topicMaxLength,
+		downloadTTLMax:       time.Duration(downloadTTLSec) * time.Second,
 		checksumAlg:          checksumAlg,
 		backendTLSConfig:     backendTLSConfig,
 		backendSASLMechanism: backendSASLMechanism,
@@ -225,6 +270,9 @@ func main() {
 		httpTLSConfig:        httpTLSConfig,
 		httpTLSCertFile:      httpTLSCertFile,
 		httpTLSKeyFile:       httpTLSKeyFile,
+		tracker:              tracker,
+		uploadSessionTTL:     uploadSessionTTL,
+		uploadSessions:       make(map[string]*uploadSession),
 	}
 	if len(backends) > 0 {
 		p.setCachedBackends(backends)
@@ -246,6 +294,13 @@ func main() {
 	if err := p.listenAndServe(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("lfs proxy server error", "error", err)
 		os.Exit(1)
+	}
+
+	// Graceful shutdown of tracker
+	if p.tracker != nil {
+		if err := p.tracker.Close(); err != nil {
+			logger.Warn("tracker close error", "error", err)
+		}
 	}
 }
 

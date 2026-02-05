@@ -66,6 +66,9 @@ public class LfsProducer {
     }
 
     public LfsEnvelope produce(String topic, byte[] key, InputStream payload, Map<String, String> headers, long sizeHint) throws Exception {
+        // Read InputStream into byte array to ensure proper Content-Length and retry support
+        byte[] data = payload.readAllBytes();
+
         Map<String, String> outHeaders = new HashMap<>();
         outHeaders.put("X-Kafka-Topic", topic);
         if (key != null) {
@@ -77,15 +80,14 @@ public class LfsProducer {
         if (!outHeaders.containsKey(HEADER_REQUEST_ID)) {
             outHeaders.put(HEADER_REQUEST_ID, UUID.randomUUID().toString());
         }
-        if (sizeHint >= 0) {
-            outHeaders.put("X-LFS-Size", String.valueOf(sizeHint));
-            outHeaders.put("X-LFS-Mode", sizeHint < MULTIPART_MIN_BYTES ? "single" : "multipart");
-        }
+        long actualSize = data.length;
+        outHeaders.put("X-LFS-Size", String.valueOf(actualSize));
+        outHeaders.put("X-LFS-Mode", actualSize < MULTIPART_MIN_BYTES ? "single" : "multipart");
 
         HttpRequest.Builder req = HttpRequest.newBuilder()
                 .uri(endpoint)
                 .timeout(requestTimeout)
-                .POST(HttpRequest.BodyPublishers.ofInputStream(() -> payload));
+                .POST(HttpRequest.BodyPublishers.ofByteArray(data));
 
         for (Map.Entry<String, String> entry : outHeaders.entrySet()) {
             req.header(entry.getKey(), entry.getValue());

@@ -67,6 +67,35 @@ KAFSCALE_E2E=1 go test -tags=e2e ./test/e2e -run TestFranzGoProduceConsume -v
 KAFSCALE_E2E=1 go test -tags=e2e ./test/e2e -v
 ```
 
+## LFS Go SDK (Kind Cluster)
+
+This test validates the Go SDK against a running Kind cluster (LFS proxy + Kafka + MinIO).
+
+Required environment:
+- `KAFSCALE_E2E=1`
+- `KAFSCALE_E2E_KIND=1`
+- `KAFSCALE_E2E_BROKER_ADDR` (host:port for broker)
+- `LFS_PROXY_HTTP_URL` (full URL), or `LFS_PROXY_SERVICE_HOST` + `LFS_PROXY_HTTP_PORT` + `LFS_PROXY_HTTP_PATH`
+- `KAFSCALE_LFS_PROXY_S3_BUCKET`
+- `KAFSCALE_LFS_PROXY_S3_REGION`
+- `KAFSCALE_LFS_PROXY_S3_ENDPOINT`
+- `KAFSCALE_LFS_PROXY_S3_ACCESS_KEY`
+- `KAFSCALE_LFS_PROXY_S3_SECRET_KEY`
+- `KAFSCALE_LFS_PROXY_S3_FORCE_PATH_STYLE` (optional)
+
+Run:
+```bash
+KAFSCALE_E2E=1 KAFSCALE_E2E_KIND=1 \
+KAFSCALE_E2E_BROKER_ADDR=127.0.0.1:9092 \
+LFS_PROXY_HTTP_URL=http://127.0.0.1:8080 \
+KAFSCALE_LFS_PROXY_S3_BUCKET=kafscale \
+KAFSCALE_LFS_PROXY_S3_REGION=us-east-1 \
+KAFSCALE_LFS_PROXY_S3_ENDPOINT=http://127.0.0.1:9000 \
+KAFSCALE_LFS_PROXY_S3_ACCESS_KEY=minioadmin \
+KAFSCALE_LFS_PROXY_S3_SECRET_KEY=minioadmin \
+go test -tags=e2e ./test/e2e -run TestLfsSDKKindE2E -v
+```
+
 **Note:** Running all tests with `go test` will skip tests whose dependencies aren't available. For complete test coverage, use `make test-full`.
 
 For local developer workflows, prefer the Makefile targets:
@@ -79,6 +108,29 @@ make test-lfs-proxy-broker        # LFS proxy with fake S3
 make test-multi-segment-durability # embedded etcd + MinIO
 make test-produce-consume         # MinIO-backed produce/consume suite
 make test-full                    # unit tests + local e2e suites
+```
+
+### Kind LFS SDK Helper Makefile
+
+The Kind-based SDK test uses `lfs-client-sdk/Makefile` to orchestrate:
+- `lfs-demo-up`: start the LFS demo stack on Kind (keeps it running)
+- `pf-start`: port-forward broker, LFS proxy HTTP, and MinIO
+- `test-lfs-sdk-kind`: run the Go SDK E2E test
+
+Run all:
+```bash
+make -C lfs-client-sdk run-all
+```
+
+Stop port-forwards:
+```bash
+make -C lfs-client-sdk pf-stop
+```
+
+If you already ran `make lfs-demo`, ensure port-forwards are up before running the SDK test:
+```bash
+make -C lfs-client-sdk pf-start
+make -C lfs-client-sdk test-lfs-sdk-kind
 ```
 
 ## Optional Environment Variables
