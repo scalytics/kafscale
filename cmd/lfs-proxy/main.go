@@ -99,9 +99,11 @@ type lfsProxy struct {
 	// LFS Operations Tracker
 	tracker *LfsOpsTracker
 
-	uploadSessionTTL time.Duration
-	uploadMu         sync.Mutex
-	uploadSessions   map[string]*uploadSession
+	corsAllowedOrigins []string
+	maxUploadSessions  int
+	uploadSessionTTL   time.Duration
+	uploadMu           sync.Mutex
+	uploadSessions     map[string]*uploadSession
 }
 
 func main() {
@@ -166,10 +168,20 @@ func main() {
 	backendSASLMechanism := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_MECHANISM"))
 	backendSASLUsername := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_USERNAME"))
 	backendSASLPassword := strings.TrimSpace(os.Getenv("KAFSCALE_LFS_PROXY_BACKEND_SASL_PASSWORD"))
+	corsOrigins := splitCSV(os.Getenv("KAFSCALE_LFS_CORS_ORIGINS"))
+	maxUploadSessions := envInt("KAFSCALE_LFS_PROXY_MAX_UPLOAD_SESSIONS", 1000)
+	if maxUploadSessions <= 0 {
+		maxUploadSessions = 1000
+	}
+
 	httpTLSConfig, httpTLSCertFile, httpTLSKeyFile, err := buildHTTPServerTLSConfig()
 	if err != nil {
 		logger.Error("http tls config failed", "error", err)
 		os.Exit(1)
+	}
+
+	if httpAPIKey != "" && httpTLSConfig == nil {
+		logger.Warn("HTTP API key is configured but TLS is not enabled; credentials will be transmitted in plaintext")
 	}
 
 	store, err := buildMetadataStore(ctx)
@@ -271,6 +283,8 @@ func main() {
 		httpTLSCertFile:      httpTLSCertFile,
 		httpTLSKeyFile:       httpTLSKeyFile,
 		tracker:              tracker,
+		corsAllowedOrigins:   corsOrigins,
+		maxUploadSessions:    maxUploadSessions,
 		uploadSessionTTL:     uploadSessionTTL,
 		uploadSessions:       make(map[string]*uploadSession),
 	}

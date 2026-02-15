@@ -26,6 +26,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -170,15 +172,23 @@ func (p *lfsProxy) startHTTPServer(ctx context.Context, addr string) {
 }
 
 // corsMiddleware adds CORS headers to allow browser-based clients.
+// Allowed origins are read from p.corsAllowedOrigins. If the list is empty,
+// no Access-Control-Allow-Origin header is set (deny by default).
 func (p *lfsProxy) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Set CORS headers for all responses
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" && len(p.corsAllowedOrigins) > 0 {
+			for _, allowed := range p.corsAllowedOrigins {
+				if allowed == "*" || strings.EqualFold(allowed, origin) {
+					w.Header().Set("Access-Control-Allow-Origin", allowed)
+					break
+				}
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Range, X-Kafka-Topic, X-Kafka-Key, X-Kafka-Partition, X-LFS-Checksum, X-LFS-Checksum-Alg, X-LFS-Size, X-LFS-Mode, X-Request-ID, X-API-Key, Authorization")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 
-		// Handle preflight OPTIONS request
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -262,7 +272,7 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		p.metrics.IncS3Errors()
 		status, code := statusForUploadError(err)
 		p.tracker.EmitUploadFailed(requestID, topic, objectKey, code, err.Error(), "s3_upload", 0, time.Since(start))
-		p.writeHTTPError(w, requestID, topic, status, code, err.Error())
+		p.writeHTTPError(w, requestID, topic, status, code, sanitizeErrorMessage(code, err))
 		return
 	}
 	if checksumHeader != "" && checksum != "" && !strings.EqualFold(checksumHeader, checksum) {
@@ -332,7 +342,7 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		p.metrics.IncRequests(topic, "error", "lfs")
 		p.trackOrphans([]orphanInfo{{Topic: topic, Key: objectKey, RequestID: requestID, Reason: "kafka_produce_failed"}})
 		p.tracker.EmitUploadFailed(requestID, topic, objectKey, "backend_unavailable", err.Error(), "kafka_produce", size, time.Since(start))
-		p.writeHTTPError(w, requestID, topic, http.StatusServiceUnavailable, "backend_unavailable", err.Error())
+		p.writeHTTPError(w, requestID, topic, http.StatusServiceUnavailable, "backend_unavailable", "backend unavailable")
 		return
 	}
 	defer backendConn.Close()
@@ -342,7 +352,7 @@ func (p *lfsProxy) handleHTTPProduce(w http.ResponseWriter, r *http.Request) {
 		p.metrics.IncRequests(topic, "error", "lfs")
 		p.trackOrphans([]orphanInfo{{Topic: topic, Key: objectKey, RequestID: requestID, Reason: "kafka_produce_failed"}})
 		p.tracker.EmitUploadFailed(requestID, topic, objectKey, "backend_error", err.Error(), "kafka_produce", size, time.Since(start))
-		p.writeHTTPError(w, requestID, topic, http.StatusBadGateway, "backend_error", err.Error())
+		p.writeHTTPError(w, requestID, topic, http.StatusBadGateway, "backend_error", "backend error")
 		return
 	}
 
@@ -590,7 +600,11 @@ func (p *lfsProxy) handleHTTPUploadInit(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	p.storeUploadSession(session)
+	if err := p.storeUploadSession(session); err != nil {
+		_ = p.s3Uploader.AbortMultipartUpload(r.Context(), objectKey, uploadID)
+		p.writeHTTPError(w, requestID, req.Topic, http.StatusTooManyRequests, "too_many_sessions", "too many active upload sessions")
+		return
+	}
 	p.tracker.EmitUploadStarted(requestID, req.Topic, partition, objectKey, req.ContentType, getClientIP(r), "http-chunked", req.SizeBytes)
 
 	resp := uploadInitResponse{
@@ -883,14 +897,18 @@ func (p *lfsProxy) handleHTTPUploadAbort(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (p *lfsProxy) storeUploadSession(session *uploadSession) {
+func (p *lfsProxy) storeUploadSession(session *uploadSession) error {
 	if session == nil {
-		return
+		return errors.New("nil session")
 	}
 	p.uploadMu.Lock()
 	defer p.uploadMu.Unlock()
 	p.cleanupUploadSessionsLocked()
+	if p.maxUploadSessions > 0 && len(p.uploadSessions) >= p.maxUploadSessions {
+		return errors.New("too many active upload sessions")
+	}
 	p.uploadSessions[session.ID] = session
+	return nil
 }
 
 func (p *lfsProxy) getUploadSession(id string) (*uploadSession, bool) {
@@ -932,6 +950,18 @@ func statusForUploadError(err error) (int, string) {
 	}
 }
 
+// sanitizeErrorMessage returns a safe client-facing message for upload errors.
+// Detail-rich internal errors (e.g. S3 responses) are replaced with generic text;
+// the original error is still logged server-side via the tracker and writeHTTPError.
+func sanitizeErrorMessage(code string, err error) string {
+	switch code {
+	case "payload_too_large", "empty_upload", "invalid_key", "invalid_reader":
+		return err.Error() // client-caused, safe to echo
+	default:
+		return "upload failed"
+	}
+}
+
 func (p *lfsProxy) writeHTTPError(w http.ResponseWriter, requestID, topic string, status int, code, message string) {
 	if topic != "" {
 		p.logger.Warn("http produce failed", "status", status, "code", code, "requestId", requestID, "topic", topic, "error", message)
@@ -969,8 +999,21 @@ func (p *lfsProxy) validateObjectKey(key string) error {
 	if strings.HasPrefix(key, "/") {
 		return errors.New("key must be relative")
 	}
+	// Decode URL-encoded sequences to catch encoded traversal attempts (%2e%2e, %2f).
+	decoded, err := url.PathUnescape(key)
+	if err != nil {
+		return errors.New("key contains invalid encoding")
+	}
+	if decoded != key {
+		return errors.New("key must not contain encoded characters")
+	}
 	if strings.Contains(key, "..") {
 		return errors.New("key must not contain '..'")
+	}
+	// Canonicalize and verify the path did not escape.
+	cleaned := path.Clean(key)
+	if cleaned != key || strings.HasPrefix(cleaned, "/") || strings.HasPrefix(cleaned, "..") {
+		return errors.New("key failed canonicalization check")
 	}
 	ns := strings.TrimSpace(p.s3Namespace)
 	if ns != "" && !strings.HasPrefix(key, ns+"/") {
@@ -1005,8 +1048,8 @@ func getClientIP(r *http.Request) string {
 		return strings.TrimSpace(xri)
 	}
 	// Extract IP from RemoteAddr (host:port format)
-	host, _, err := strings.Cut(r.RemoteAddr, ":")
-	if err {
+	host, _, found := strings.Cut(r.RemoteAddr, ":")
+	if found {
 		return host
 	}
 	return r.RemoteAddr

@@ -365,6 +365,10 @@ func (u *s3Uploader) UploadStream(ctx context.Context, key string, reader io.Rea
 	// Continue reading remaining chunks
 	buf := make([]byte, u.chunkSize)
 	for {
+		if err := ctx.Err(); err != nil {
+			_ = u.abortUpload(ctx, key, *uploadID)
+			return "", "", "", total, fmt.Errorf("upload cancelled: %w", err)
+		}
 		n, readErr := io.ReadFull(reader, buf)
 		if n > 0 {
 			total += int64(n)
