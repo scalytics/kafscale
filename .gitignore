@@ -109,7 +109,22 @@ examples/AGENTS.md
 **/*.pyo
 **/*.pyd
 **/*.egg-info/
+**/dist/*.whl
+**/dist/*.tar.gz
 
 # Python virtual environments
 .venv/
 **/.venv/
+
+# Runtime artifacts
+*.pid
+**/.pf/
+**/.tmp/
+
+# JS compiled output
+lfs-client-sdk/js/dist/
+
+# Local configs that should not be committed
+.testcontainers.properties
+**/.testcontainers.properties
+Containers/
