@@ -1,0 +1,100 @@
+# Copyright 2026 Alexander Alten (novatechflow), NovaTechflow (novatechflow.com).
+# This project is supported and financed by Scalytics, Inc. (www.scalytics.io).
+#
+# Helm values for MS23 Kind deployment
+# =====================================
+#
+# Uses local registry at 192.168.0.131:5100
+# Namespace: ks.ms23.01
+#
+
+# Global image settings - use local registry
+operator:
+  image:
+    repository: 192.168.0.131:5100/kafscale/kafscale-operator
+    tag: dev
+    pullPolicy: Always
+  brokerImage:
+    repository: 192.168.0.131:5100/kafscale/kafscale-broker
+    tag: dev
+  etcdSnapshotEtcdctlImage:
+    repository: 192.168.0.131:5100/kafscale/kafscale-etcd-tools
+    tag: dev
+  # Use in-memory etcd for simplicity
+  etcdStorageMemory: true
+  etcdReplicas: 1
+
+console:
+  enabled: true
+  image:
+    repository: 192.168.0.131:5100/kafscale/kafscale-console
+    tag: dev
+    pullPolicy: Always
+  # LFS Dashboard configuration - enables the traceability UI
+  lfs:
+    enabled: true
+    kafkaBrokers:
+      - kafscale-broker-0.kafscale-broker-headless.ks-ms23-01.svc.cluster.local:9092
+    trackerTopic: "__lfs_ops_state"
+    s3:
+      bucket: kafscale
+      region: us-east-1
+      endpoint: http://minio.ks-ms23-01.svc.cluster.local:9000
+      accessKey: minioadmin
+      secretKey: minioadmin
+      presignTTL: 300
+  service:
+    type: NodePort
+    port: 3080
+
+# LFS Proxy with HTTP API enabled
+lfsProxy:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: 192.168.0.131:5100/kafscale/kafscale-lfs-proxy
+    tag: dev
+    pullPolicy: Always
+  http:
+    enabled: true
+    port: 8080
+    cors:
+      enabled: true
+      allowOrigins: ["*"]
+      allowMethods: ["POST", "OPTIONS"]
+      allowHeaders:
+        - Content-Type
+        - X-Kafka-Topic
+        - X-Kafka-Key
+        - X-Kafka-Partition
+        - X-LFS-Checksum
+        - X-LFS-Checksum-Alg
+        - X-LFS-Size
+        - X-LFS-Mode
+        - X-Request-ID
+        - X-API-Key
+        - Authorization
+      exposeHeaders: ["X-Request-ID"]
+  s3:
+    bucket: kafscale
+    region: us-east-1
+    endpoint: http://minio.ks-ms23-01.svc.cluster.local:9000
+    accessKey: minioadmin
+    secretKey: minioadmin
+    forcePathStyle: true
+    ensureBucket: true
+  service:
+    type: NodePort
+    port: 9093
+
+# E72 Browser Demo
+lfsDemos:
+  enabled: true
+  e72Browser:
+    enabled: true
+    lfsProxyEndpoint: "http://localhost:8080/lfs/produce"
+    defaultTopic: browser-uploads
+    service:
+      type: NodePort
+      port: 80
+      nodePort: 30072

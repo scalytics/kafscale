@@ -51,6 +51,30 @@ By default, image tags follow the chart `appVersion`. Override `operator.image.t
 | `console.auth.*` | Console login credentials. Set both `console.auth.username` and `console.auth.password` to enable the UI. |
 | `imagePullSecrets` | Provide if your container registry (e.g., GHCR) is private. |
 
+## Stage Release to Local Registry
+
+To stage images into a local registry (e.g., Synology at `192.168.0.131:5100`), use:
+
+```bash
+make stage-release STAGE_REGISTRY=192.168.0.131:5100 STAGE_TAG=stage-YYYYMMDD
+```
+
+This runs the local buildx script and pushes images to the registry. By default it builds
+`linux/amd64,linux/arm64` and disables cache.
+
+To run the GitHub Actions workflow locally inside a containerized `act` runner:
+
+```bash
+make stage-release-act STAGE_REGISTRY=192.168.0.131:5100 STAGE_TAG=stage-YYYYMMDD
+```
+
+`stage-release-act` builds a local `act` runner image (`make act-image`) and executes
+`.github/workflows/stage-release.yml` inside that container.
+
+Overrides:
+- `STAGE_PLATFORMS=linux/amd64` (or `linux/arm64`) to build a single arch.
+- `STAGE_NO_CACHE=0` to allow cached layers.
+
 ## Post-install Steps
 
 1. Apply a `KafscaleCluster` custom resource describing the S3 bucket, etcd endpoints, cache sizes, and credentials secret.

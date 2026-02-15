@@ -116,6 +116,42 @@ We publish container images and GitHub releases from tags. This keeps release ar
 - Optional: create a prep branch named `prep-vX.Y.Z` to stage release notes and Helm chart bumps before tagging.
 - `scripts/release.sh -tag vX.Y.Z` creates a `prep-vX.Y.Z` branch, bumps Helm/app versions (including addons), generates release notes from history, commits, and pushes the branch for review.
 
+### Stage Release (Local Registry)
+
+For local staging (e.g., Synology registry at `192.168.0.131:5100`), we can build and push images without hitting GHCR.
+
+Prerequisites:
+- Docker running locally
+- Local registry reachable from the host (HTTP is fine if your daemon trusts it)
+
+Run (local buildx path, multi-arch, no cache by default):
+```bash
+make stage-release STAGE_REGISTRY=192.168.0.131:5100 STAGE_TAG=stage-YYYYMMDD
+```
+
+This pushes:
+- `kafscale-broker`
+- `kafscale-lfs-proxy`
+- `kafscale-operator`
+- `kafscale-console`
+- `kafscale-etcd-tools`
+- `kafscale-iceberg-processor`
+- `kafscale-sql-processor`
+
+Run (workflow path using containerized act):
+```bash
+make stage-release-act STAGE_REGISTRY=192.168.0.131:5100 STAGE_TAG=stage-YYYYMMDD
+```
+
+`stage-release-act` builds a local `act` runner image (`make act-image`) and executes
+`.github/workflows/stage-release.yml` inside that container.
+
+Overrides:
+- `STAGE_PLATFORMS=linux/amd64` (or `linux/arm64`) to build a single arch.
+- `STAGE_NO_CACHE=0` to allow cached layers.
+
+If your Docker daemon requires an insecure registry, configure it before running.
+
 ## Testing Expectations
 
 Pull requests must include strict test coverage for the changes they introduce. At a minimum:

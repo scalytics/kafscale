@@ -1,0 +1,58 @@
+# Copyright 2026 Alexander Alten (novatechflow), NovaTechflow (novatechflow.com).
+# This project is supported and financed by Scalytics, Inc. (www.scalytics.io).
+#
+# Kind cluster configuration for MS23 milestone deployment
+# =========================================================
+#
+# Features:
+# - Single control-plane node with worker capabilities
+# - Port mappings for external access
+# - Local registry support (192.168.0.131:5100)
+# - Extra mounts for persistent data
+#
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ks-ms23
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Kafka broker
+      - containerPort: 9092
+        hostPort: 9092
+        protocol: TCP
+      # LFS Proxy Kafka
+      - containerPort: 9093
+        hostPort: 9093
+        protocol: TCP
+      # LFS Proxy HTTP API
+      - containerPort: 8080
+        hostPort: 8080
+        protocol: TCP
+      # KafScale Console
+      - containerPort: 3080
+        hostPort: 3080
+        protocol: TCP
+      # E72 Browser Demo
+      - containerPort: 30072
+        hostPort: 3072
+        protocol: TCP
+      # MinIO API
+      - containerPort: 9000
+        hostPort: 9000
+        protocol: TCP
+      # MinIO Console
+      - containerPort: 9001
+        hostPort: 9001
+        protocol: TCP
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."192.168.0.131:5100"]
+      endpoint = ["http://192.168.0.131:5100"]
+    [plugins."io.containerd.grpc.v1.cri".registry.configs."192.168.0.131:5100".tls]
+      insecure_skip_verify = true

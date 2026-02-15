@@ -1,0 +1,26 @@
+# Copyright 2026 Alexander Alten (novatechflow), NovaTechflow (novatechflow.com).
+# This project is supported and financed by Scalytics, Inc. (www.scalytics.io).
+#
+# MetalLB configuration for MS23 Kind cluster
+# ============================================
+#
+# IP address pool for LoadBalancer services
+# Uses Docker's default bridge network range
+#
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.18.255.200-172.18.255.250
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - default-pool
